@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE / Editor
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SQLite database (runtime artifact)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Generated log files
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.*
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
