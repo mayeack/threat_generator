@@ -6,7 +6,7 @@ from .base import BaseFormatter
 
 
 class SyslogFormatter(BaseFormatter):
-    """BSD syslog for linux_secure and cisco:asa."""
+    """Syslog formatter for linux_secure with ISO 8601 timestamps."""
 
     def format(self, ts: datetime, **fields) -> str:
         hostname = fields.get("hostname", "localhost")
@@ -14,9 +14,7 @@ class SyslogFormatter(BaseFormatter):
         pid = fields.get("pid", 1234)
         message = fields.get("message", "")
 
-        ts_str = ts.strftime("%b %d %H:%M:%S")
-        # Ensure day is space-padded per BSD syslog
-        ts_str = ts_str[:4] + ts_str[4:].replace(" 0", "  ", 1) if ts.day < 10 else ts_str
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return f"{ts_str} {hostname} {process}[{pid}]: {message}"
 
 
@@ -32,7 +30,5 @@ class CiscoASAFormatter(BaseFormatter):
         # PRI = facility * 8 + severity; LOCAL4 = 20
         pri = 20 * 8 + severity
 
-        ts_str = ts.strftime("%b %d %H:%M:%S")
-        if ts.day < 10:
-            ts_str = ts_str[:4] + ts_str[4:].replace(" 0", "  ", 1)
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return f"<{pri}>{ts_str} {hostname} %ASA-{severity}-{message_id}: {message}"

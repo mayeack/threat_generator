@@ -35,6 +35,8 @@ GENERATOR_CLASSES: dict[str, type[BaseGenerator]] = {
     "firewall": FirewallGenerator,
 }
 
+MULTILINE_SOURCETYPES = {"wineventlog", "sysmon"}
+
 
 class EngineState:
     def __init__(self) -> None:
@@ -146,7 +148,7 @@ async def _run_engine(cfg: EngineConfig) -> None:
     global _file_handles
     _file_handles = {}
     for name, st_cfg in cfg.sourcetypes.items():
-        _file_handles[name] = open(output_dir / st_cfg.file, "a", buffering=1, encoding="utf-8")
+        _file_handles[name] = open(output_dir / st_cfg.file, "w", buffering=1, encoding="utf-8")
 
     from threatgen.websocket_manager import ws_manager
 
@@ -178,9 +180,10 @@ async def _run_engine(cfg: EngineConfig) -> None:
                     continue
                 lines = gen.generate(ts)
                 fh = _file_handles.get(st)
+                sep = "\n\n" if st in MULTILINE_SOURCETYPES else "\n"
                 for line in lines:
                     if fh:
-                        fh.write(line + "\n")
+                        fh.write(line + sep)
                     try:
                         await ws_manager.broadcast(st, line)
                     except Exception:
@@ -190,9 +193,10 @@ async def _run_engine(cfg: EngineConfig) -> None:
             threat_events = _orchestrator.tick(ts, elapsed)
             for st, lines in threat_events.items():
                 fh = _file_handles.get(st)
+                sep = "\n\n" if st in MULTILINE_SOURCETYPES else "\n"
                 for line in lines:
                     if fh:
-                        fh.write(line + "\n")
+                        fh.write(line + sep)
                     try:
                         await ws_manager.broadcast(st, line)
                     except Exception:
@@ -281,9 +285,10 @@ async def trigger_campaign(campaign_id: str) -> int:
     for st, lines in events.items():
         total += len(lines)
         fh = _file_handles.get(st)
+        sep = "\n\n" if st in MULTILINE_SOURCETYPES else "\n"
         for line in lines:
             if fh:
-                fh.write(line + "\n")
+                fh.write(line + sep)
             try:
                 await ws_manager.broadcast(st, line)
             except Exception:

@@ -56,11 +56,19 @@ EXTERNAL_DOMAINS = [
     "s3.amazonaws.com", "cdn.cloudflare.com", "update.microsoft.com",
 ]
 
+SYSMON_PID = 2084
+SYSMON_TID = 3912
+
 
 class SysmonGenerator(BaseGenerator):
     def __init__(self, topology: Topology) -> None:
         super().__init__(topology)
         self.fmt = SysmonFormatter()
+        self._record_id = self.rng.randint(100000, 999999)
+
+    def _next_record(self) -> int:
+        self._record_id += 1
+        return self._record_id
 
     def generate(self, ts: datetime) -> list[str]:
         event_id = self.rng.choices(EVENT_IDS, weights=EVENT_WEIGHTS, k=1)[0]
@@ -78,7 +86,16 @@ class SysmonGenerator(BaseGenerator):
         else:
             data_fields = self._registry_value_set(ts, host)
 
-        line = self.fmt.format(ts, event_id=event_id, computer=computer, task=event_id, data_fields=data_fields)
+        line = self.fmt.format(
+            ts,
+            event_id=event_id,
+            computer=computer,
+            task=event_id,
+            data_fields=data_fields,
+            record_id=self._next_record(),
+            sysmon_pid=SYSMON_PID,
+            sysmon_tid=SYSMON_TID,
+        )
         return [line]
 
     def _fake_hash(self, seed_str: str) -> str:
@@ -89,7 +106,7 @@ class SysmonGenerator(BaseGenerator):
         user = self.topo.random_user()
         pid = self.topo.random_process_id()
         ppid = self.topo.random_process_id()
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return [
             ("RuleName", ""),
             ("UtcTime", ts_str),
@@ -115,7 +132,7 @@ class SysmonGenerator(BaseGenerator):
         dest_ip = self.topo.random_external_ip()
         dest_domain = self.rng.choice(EXTERNAL_DOMAINS)
         dest_port = self.rng.choice([80, 443])
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return [
             ("RuleName", ""),
             ("UtcTime", ts_str),
@@ -136,7 +153,7 @@ class SysmonGenerator(BaseGenerator):
     def _image_loaded(self, ts, host):
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
         dll = self.rng.choice(LOADED_DLLS)
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return [
             ("RuleName", ""),
             ("UtcTime", ts_str),
@@ -156,7 +173,7 @@ class SysmonGenerator(BaseGenerator):
         rand_hex = f"{self.rng.randint(0, 0xFFFFFF):06X}"
         target = template.format(user=user.username, rand=rand_hex)
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return [
             ("RuleName", ""),
             ("UtcTime", ts_str),
@@ -170,7 +187,7 @@ class SysmonGenerator(BaseGenerator):
     def _registry_value_set(self, ts, host):
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
         key = self.rng.choice(REGISTRY_KEYS)
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         return [
             ("RuleName", ""),
             ("EventType", "SetValue"),

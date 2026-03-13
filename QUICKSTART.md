@@ -63,10 +63,12 @@ ThreatGen writes six log files to `./logs/`, each in a Splunk-native format:
 |---|---|---|
 | `wineventlog.log` | Multi-line key=value (Windows Security Auditing) | `WinEventLog:Security` |
 | `sysmon.log` | Multi-line XML (Sysmon events) | `XmlWinEventLog:Microsoft-Windows-Sysmon/Operational` |
-| `linux_secure.log` | BSD syslog | `linux_secure` |
+| `linux_secure.log` | Syslog with ISO 8601 timestamps | `linux_secure` |
 | `stream_dns.log` | Single-line JSON (Splunk Stream) | `stream:dns` |
 | `stream_http.log` | Single-line JSON (Splunk Stream) | `stream:http` |
-| `cisco_asa.log` | Syslog with PRI header + `%ASA-` message ID | `cisco:asa` |
+| `cisco_asa.log` | Syslog with PRI header + ISO 8601 timestamps | `cisco:asa` |
+
+Log files are truncated each time the engine starts, so every run begins with clean data.
 
 ### Prerequisites
 
@@ -86,198 +88,66 @@ Install the following Technology Add-ons on your **search head** (and indexer if
 | Splunk Add-on for Cisco ASA | [Splunk_TA_cisco-asa](https://splunkbase.splunk.com/app/1620) | `cisco:asa` |
 | Splunk Add-on for Stream Wire Data | [Splunk_TA_stream](https://splunkbase.splunk.com/app/1809) | `stream:dns`, `stream:http` |
 
-> **Note:** These TAs include `props.conf` settings (`rename` directives, line breaking rules) that conflict with ThreatGen's log format when applied at index time. If any of these TAs are also installed on the **indexer**, you must deploy the indexer-side parsing app in Step 2 below to override them.
+> **Note:** The bundled `TA-threatgen` app uses `source::` stanzas that take higher precedence than any TA-defined sourcetype stanzas. This prevents TAs from renaming sourcetypes or applying conflicting line-breaking rules. The TAs are still needed for search-time field extractions and CIM mappings.
 
-### Step 1: Create the forwarder app
+### Step 1: Deploy TA-threatgen to the Splunk indexer
+
+The bundled Splunk app at `splunk/TA-threatgen/` contains `source::`-based parsing rules that must be installed on the **indexer**. Without this app, Splunk's default `SHOULD_LINEMERGE = true` re-merges events at index time, causing multi-line events to be mangled and single-line JSON events to be concatenated.
 
 ```bash
-sudo mkdir -p /opt/splunkforwarder/etc/apps/threatgen_inputs/local
-sudo mkdir -p /opt/splunkforwarder/etc/apps/threatgen_inputs/default
+sudo cp -r splunk/TA-threatgen /opt/splunk/etc/apps/TA-threatgen
 ```
 
-Create `/opt/splunkforwarder/etc/apps/threatgen_inputs/default/app.conf`:
+### Step 2: Deploy TA-threatgen to the forwarder
 
-```ini
-[install]
-state = enabled
+Install the same app on the Universal Forwarder and create a `local/inputs.conf` to enable the file monitors.
 
-[ui]
-is_visible = false
-label = ThreatGen Inputs
-
-[launcher]
-version = 1.0.0
-description = Monitors ThreatGen APT log files for forwarding to Splunk
+```bash
+sudo cp -r splunk/TA-threatgen /opt/splunkforwarder/etc/apps/TA-threatgen
+sudo mkdir -p /opt/splunkforwarder/etc/apps/TA-threatgen/local
 ```
 
-Create `/opt/splunkforwarder/etc/apps/threatgen_inputs/local/inputs.conf`:
+Create `/opt/splunkforwarder/etc/apps/TA-threatgen/local/inputs.conf`:
 
-> **Important:** Update the monitor paths below if ThreatGen is installed somewhere other than `/Applications/ThreatGen`.
+> **Important:** Update the monitor paths below if ThreatGen is installed somewhere other than `/Applications/ThreatGenerator`.
 
 ```ini
-[monitor:///Applications/ThreatGen/logs/wineventlog.log]
+[monitor:///Applications/ThreatGenerator/logs/wineventlog.log]
 disabled = false
 index = threat_gen
 sourcetype = WinEventLog:Security
 source = threatgen:wineventlog
 
-[monitor:///Applications/ThreatGen/logs/sysmon.log]
+[monitor:///Applications/ThreatGenerator/logs/sysmon.log]
 disabled = false
 index = threat_gen
 sourcetype = XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
 source = threatgen:sysmon
 
-[monitor:///Applications/ThreatGen/logs/linux_secure.log]
+[monitor:///Applications/ThreatGenerator/logs/linux_secure.log]
 disabled = false
 index = threat_gen
 sourcetype = linux_secure
 source = threatgen:linux_secure
 
-[monitor:///Applications/ThreatGen/logs/stream_dns.log]
+[monitor:///Applications/ThreatGenerator/logs/stream_dns.log]
 disabled = false
 index = threat_gen
 sourcetype = stream:dns
 source = threatgen:stream_dns
 
-[monitor:///Applications/ThreatGen/logs/stream_http.log]
+[monitor:///Applications/ThreatGenerator/logs/stream_http.log]
 disabled = false
 index = threat_gen
 sourcetype = stream:http
 source = threatgen:stream_http
 
-[monitor:///Applications/ThreatGen/logs/cisco_asa.log]
+[monitor:///Applications/ThreatGenerator/logs/cisco_asa.log]
 disabled = false
 index = threat_gen
 sourcetype = cisco:asa
 source = threatgen:cisco_asa
 ```
-
-Create `/opt/splunkforwarder/etc/apps/threatgen_inputs/local/props.conf`:
-
-```ini
-[stream:dns]
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N
-TIME_PREFIX = "timestamp":"
-MAX_TIMESTAMP_LOOKAHEAD = 32
-KV_MODE = json
-
-[stream:http]
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N
-TIME_PREFIX = "timestamp":"
-MAX_TIMESTAMP_LOOKAHEAD = 32
-KV_MODE = json
-
-[WinEventLog:Security]
-LINE_BREAKER = ([\r\n]+)(?=\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M)
-SHOULD_LINEMERGE = false
-TIME_FORMAT = %m/%d/%Y %I:%M:%S %p
-MAX_TIMESTAMP_LOOKAHEAD = 24
-
-[XmlWinEventLog:Microsoft-Windows-Sysmon/Operational]
-LINE_BREAKER = ([\r\n]+)(?=<Event\s)
-SHOULD_LINEMERGE = false
-TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N
-TIME_PREFIX = SystemTime="
-MAX_TIMESTAMP_LOOKAHEAD = 32
-
-[cisco:asa]
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %b %d %H:%M:%S
-MAX_TIMESTAMP_LOOKAHEAD = 15
-TIME_PREFIX = >\w{3}\s+
-
-[linux_secure]
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %b %d %H:%M:%S
-MAX_TIMESTAMP_LOOKAHEAD = 15
-```
-
-### Step 2: Create the indexer-side parsing app
-
-If your Splunk indexer has TAs installed that define these sourcetypes (Splunk_TA_windows, Splunk_TA_cisco-asa, Splunk_TA_microsoft_sysmon, Splunk_TA_nix), their `rename` directives and parsing rules will conflict with ThreatGen's log format. Deploy this app on the **indexer** to override them using source-based stanza precedence.
-
-> **Skip this step** if your indexer has none of these TAs installed.
-
-```bash
-sudo mkdir -p /opt/splunk/etc/apps/threatgen_inputs/local
-sudo mkdir -p /opt/splunk/etc/apps/threatgen_inputs/default
-```
-
-Create `/opt/splunk/etc/apps/threatgen_inputs/default/app.conf`:
-
-```ini
-[install]
-state = enabled
-
-[ui]
-is_visible = false
-label = ThreatGen Inputs
-
-[launcher]
-version = 1.0.0
-description = Parsing configuration for ThreatGen APT log data
-```
-
-Create `/opt/splunk/etc/apps/threatgen_inputs/local/props.conf`:
-
-```ini
-[source::threatgen:wineventlog]
-sourcetype = WinEventLog:Security
-SHOULD_LINEMERGE = true
-BREAK_ONLY_BEFORE = ^\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M
-TIME_FORMAT = %m/%d/%Y %I:%M:%S %p
-MAX_TIMESTAMP_LOOKAHEAD = 24
-rename = WinEventLog:Security
-
-[source::threatgen:sysmon]
-sourcetype = XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
-SHOULD_LINEMERGE = true
-BREAK_ONLY_BEFORE = <Event\s+xmlns=
-TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N
-TIME_PREFIX = SystemTime="
-MAX_TIMESTAMP_LOOKAHEAD = 32
-rename = XmlWinEventLog:Microsoft-Windows-Sysmon/Operational
-
-[source::threatgen:linux_secure]
-sourcetype = linux_secure
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %b %d %H:%M:%S
-MAX_TIMESTAMP_LOOKAHEAD = 15
-
-[source::threatgen:stream_dns]
-sourcetype = stream:dns
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N
-TIME_PREFIX = "timestamp":"
-MAX_TIMESTAMP_LOOKAHEAD = 32
-KV_MODE = json
-
-[source::threatgen:stream_http]
-sourcetype = stream:http
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %Y-%m-%dT%H:%M:%S.%6N
-TIME_PREFIX = "timestamp":"
-MAX_TIMESTAMP_LOOKAHEAD = 32
-KV_MODE = json
-
-[source::threatgen:cisco_asa]
-sourcetype = cisco:asa
-SHOULD_LINEMERGE = false
-LINE_BREAKER = ([\r\n]+)
-TIME_FORMAT = %b %d %H:%M:%S
-MAX_TIMESTAMP_LOOKAHEAD = 15
-```
-
-The `source::` stanzas match the custom `source` values set in the forwarder's `inputs.conf` and take **higher precedence** than sourcetype-based stanzas from the TAs. The `rename` directives on the multi-line sourcetypes explicitly preserve the intended sourcetype name, preventing TAs like Splunk_TA_windows from renaming `WinEventLog:Security` to `WinEventLog`.
 
 ### Step 3: Configure the forwarder output
 
@@ -297,7 +167,7 @@ Replace `<your_indexer_ip>` with your Splunk indexer's IP address or hostname.
 ### Step 4: Restart and verify
 
 ```bash
-# Restart the indexer (only if you deployed the indexer-side app)
+# Restart the indexer
 sudo /opt/splunk/bin/splunk restart
 
 # Restart the forwarder
@@ -312,18 +182,37 @@ index=threat_gen | stats count by sourcetype
 
 You should see all six sourcetypes with properly formatted events.
 
-### Troubleshooting: TA conflicts
+### Reset stale data
 
-If you have Splunk TAs installed and did not deploy the indexer-side app, you may see these symptoms:
+If you previously indexed ThreatGen logs with incorrect event breaking (merged JSON events, mangled multi-line events), clear the index before re-ingesting:
 
-| Symptom | Cause |
-|---|---|
-| `WinEventLog:Security` events missing or sourcetype shows as `WinEventLog` | `Splunk_TA_windows` has `rename = WinEventLog` in its `props.conf` |
-| Sysmon events show sourcetype `XmlWinEventLog` or `xmlwineventlog` | `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` both rename this sourcetype |
-| `stream:dns` or `stream:http` events show multiple JSON objects merged into one event | Missing `SHOULD_LINEMERGE = false` at the indexer parsing stage |
-| `cisco:asa` or `linux_secure` events missing | TA parsing rules conflict with ThreatGen's format |
+```bash
+sudo /opt/splunk/bin/splunk stop
+sudo /opt/splunk/bin/splunk clean eventdata -index threat_gen
+sudo /opt/splunk/bin/splunk start
+```
 
-The fix in all cases is to deploy the indexer-side `props.conf` from Step 2.
+Then restart ThreatGen (which truncates the log files) and the forwarder:
+
+```bash
+# Restart ThreatGen to generate fresh logs
+curl -X POST http://127.0.0.1:8899/api/generator/stop
+curl -X POST http://127.0.0.1:8899/api/generator/start
+
+# Restart the forwarder to re-read from the beginning of each file
+sudo /opt/splunkforwarder/bin/splunk restart
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Multiple JSON objects in one event (stream:dns/http) | Indexer re-merges events with default `SHOULD_LINEMERGE = true` | Deploy `TA-threatgen` on the indexer |
+| `WinEventLog:Security` events missing or sourcetype shows as `WinEventLog` | `Splunk_TA_windows` renames the sourcetype | `TA-threatgen` `source::` stanzas override this |
+| Sysmon XML events fragmented or merged | Missing `LINE_BREAKER` for `<Event` boundaries | Deploy `TA-threatgen` on both indexer and forwarder |
+| `linux_secure` or `cisco:asa` events missing entirely | No matching `inputs.conf` monitor on the forwarder | Verify `local/inputs.conf` paths and `disabled = false` |
+| Timestamps show index time instead of event time (`cisco:asa`, `WinEventLog:Security`, etc.) | Stale `TA-threatgen` with outdated `TIME_PREFIX` or `TIME_FORMAT` in `props.conf` | Redeploy the latest `TA-threatgen` to both indexer and forwarder; follow "Reset stale data" steps above |
+| Old malformed events still appearing after fix | Stale data in the `threat_gen` index | Follow "Reset stale data" steps above |
 
 ## What's Running
 
@@ -341,10 +230,10 @@ The fix in all cases is to deploy the indexer-side `props.conf` from Step 2.
 |---|---|---|---|
 | `wineventlog` | `logs/wineventlog.log` | Multi-line key=value | ~15-25 |
 | `sysmon` | `logs/sysmon.log` | Multi-line XML (`<Event>...</Event>`) | ~20-30 |
-| `linux_secure` | `logs/linux_secure.log` | BSD syslog | 1 |
+| `linux_secure` | `logs/linux_secure.log` | Syslog (ISO 8601) | 1 |
 | `dns` | `logs/stream_dns.log` | JSON | 1 |
 | `http` | `logs/stream_http.log` | JSON | 1 |
-| `firewall` | `logs/cisco_asa.log` | Syslog with PRI + `%ASA-` | 1 |
+| `firewall` | `logs/cisco_asa.log` | Syslog with PRI + ISO 8601 | 1 |
 
 ### Embedded Threat Campaigns (UAT-9244)
 

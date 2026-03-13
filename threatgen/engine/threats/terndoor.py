@@ -21,6 +21,9 @@ PAYLOAD_HASHES = [
 ]
 DRIVER_HASH = "2d2ca7d21310b14f5f5641bbf4a9ff4c3e566b1fbbd370034c6844cedc8f0538"
 
+SYSMON_PID = 2084
+SYSMON_TID = 3912
+
 
 class TernDoorCampaign(BaseCampaign):
     def __init__(self, topology: Topology) -> None:
@@ -30,6 +33,16 @@ class TernDoorCampaign(BaseCampaign):
         self.asa_fmt = CiscoASAFormatter()
         self.json_fmt = JSONFormatter()
         self._victim_host = topology.random_windows_host()
+        self._sysmon_record_id = self.rng.randint(200000, 299999)
+        self._winevent_record_number = self.rng.randint(300000, 399999)
+
+    def _next_sysmon_record(self) -> int:
+        self._sysmon_record_id += 1
+        return self._sysmon_record_id
+
+    def _next_winevent_record(self) -> int:
+        self._winevent_record_number += 1
+        return self._winevent_record_number
 
     @property
     def total_phases(self) -> int:
@@ -50,173 +63,206 @@ class TernDoorCampaign(BaseCampaign):
             return self._c2_beacon(ts, host, computer)
 
     def _dll_sideloading(self, ts, host, computer):
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         dll_hash = self.rng.choice(LOADER_HASHES)
 
         sysmon_lines = []
 
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=1, computer=computer, task=1, data_fields=[
-            ("RuleName", "technique_id=T1574.002,technique_name=DLL Side-Loading"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\ProgramData\WSPrint\WSPrint.exe"),
-            ("CommandLine", r"C:\ProgramData\WSPrint\WSPrint.exe"),
-            ("CurrentDirectory", r"C:\ProgramData\WSPrint\\"),
-            ("User", f"{host.domain}\\SYSTEM"),
-            ("LogonGuid", self.topo.random_guid()),
-            ("LogonId", "0x3E7"),
-            ("IntegrityLevel", "System"),
-            ("Hashes", f"SHA256={self.rng.choice(PAYLOAD_HASHES)}"),
-            ("ParentProcessGuid", self.topo.random_guid()),
-            ("ParentProcessId", str(self.topo.random_process_id())),
-            ("ParentImage", r"C:\Windows\System32\svchost.exe"),
-            ("ParentCommandLine", r"C:\Windows\System32\svchost.exe -k netsvcs"),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=1, computer=computer, task=1,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1574.002,technique_name=DLL Side-Loading"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\ProgramData\WSPrint\WSPrint.exe"),
+                ("CommandLine", r"C:\ProgramData\WSPrint\WSPrint.exe"),
+                ("CurrentDirectory", r"C:\ProgramData\WSPrint\\"),
+                ("User", f"{host.domain}\\SYSTEM"),
+                ("LogonGuid", self.topo.random_guid()),
+                ("LogonId", "0x3E7"),
+                ("IntegrityLevel", "System"),
+                ("Hashes", f"SHA256={self.rng.choice(PAYLOAD_HASHES)}"),
+                ("ParentProcessGuid", self.topo.random_guid()),
+                ("ParentProcessId", str(self.topo.random_process_id())),
+                ("ParentImage", r"C:\Windows\System32\svchost.exe"),
+                ("ParentCommandLine", r"C:\Windows\System32\svchost.exe -k netsvcs"),
+            ]))
 
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=7, computer=computer, task=7, data_fields=[
-            ("RuleName", "technique_id=T1574.002,technique_name=DLL Side-Loading"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\ProgramData\WSPrint\WSPrint.exe"),
-            ("ImageLoaded", r"C:\ProgramData\WSPrint\BugSplatRc64.dll"),
-            ("Hashes", f"SHA256={dll_hash}"),
-            ("Signed", "false"),
-            ("Signature", "-"),
-            ("SignatureStatus", "Unavailable"),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=7, computer=computer, task=7,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1574.002,technique_name=DLL Side-Loading"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\ProgramData\WSPrint\WSPrint.exe"),
+                ("ImageLoaded", r"C:\ProgramData\WSPrint\BugSplatRc64.dll"),
+                ("Hashes", f"SHA256={dll_hash}"),
+                ("Signed", "false"),
+                ("Signature", "-"),
+                ("SignatureStatus", "Unavailable"),
+            ]))
 
         msiexec_pid = self.topo.random_process_id()
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=1, computer=computer, task=1, data_fields=[
-            ("RuleName", "technique_id=T1055,technique_name=Process Injection"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(msiexec_pid)),
-            ("Image", r"C:\Windows\System32\msiexec.exe"),
-            ("CommandLine", r"C:\Windows\System32\msiexec.exe /V"),
-            ("CurrentDirectory", r"C:\Windows\System32\\"),
-            ("User", r"NT AUTHORITY\SYSTEM"),
-            ("LogonGuid", self.topo.random_guid()),
-            ("LogonId", "0x3E7"),
-            ("IntegrityLevel", "System"),
-            ("Hashes", f"SHA256={self.rng.choice(PAYLOAD_HASHES)}"),
-            ("ParentProcessGuid", self.topo.random_guid()),
-            ("ParentProcessId", str(self.topo.random_process_id())),
-            ("ParentImage", r"C:\ProgramData\WSPrint\WSPrint.exe"),
-            ("ParentCommandLine", r"C:\ProgramData\WSPrint\WSPrint.exe"),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=1, computer=computer, task=1,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1055,technique_name=Process Injection"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(msiexec_pid)),
+                ("Image", r"C:\Windows\System32\msiexec.exe"),
+                ("CommandLine", r"C:\Windows\System32\msiexec.exe /V"),
+                ("CurrentDirectory", r"C:\Windows\System32\\"),
+                ("User", r"NT AUTHORITY\SYSTEM"),
+                ("LogonGuid", self.topo.random_guid()),
+                ("LogonId", "0x3E7"),
+                ("IntegrityLevel", "System"),
+                ("Hashes", f"SHA256={self.rng.choice(PAYLOAD_HASHES)}"),
+                ("ParentProcessGuid", self.topo.random_guid()),
+                ("ParentProcessId", str(self.topo.random_process_id())),
+                ("ParentImage", r"C:\ProgramData\WSPrint\WSPrint.exe"),
+                ("ParentCommandLine", r"C:\ProgramData\WSPrint\WSPrint.exe"),
+            ]))
 
+        new_pid = self.topo.random_process_id()
+        creator_pid = self.topo.random_process_id()
         win_line = self.winevent_fmt.format(
             ts, event_code=4688, computer=computer,
             task_category="Process Creation", keywords="Audit Success",
+            record_number=self._next_winevent_record(),
             message=(
-                f"A new process has been created.\n"
-                f"Creator Subject:\n"
-                f"  Security ID: S-1-5-18\n"
-                f"  Account Name: SYSTEM\n"
-                f"  Account Domain: NT AUTHORITY\n"
-                f"  Logon ID: 0x3E7\n"
-                f"Process Information:\n"
-                f"  New Process ID: 0x{self.topo.random_process_id():X}\n"
-                f"  New Process Name: C:\\ProgramData\\WSPrint\\WSPrint.exe\n"
-                f"  Creator Process ID: 0x{self.topo.random_process_id():X}\n"
-                f"  Creator Process Name: C:\\Windows\\System32\\svchost.exe"
+                "A new process has been created.\n"
+                "\n"
+                "Creator Subject:\n"
+                "\tSecurity ID:\t\tS-1-5-18\n"
+                "\tAccount Name:\t\tSYSTEM\n"
+                "\tAccount Domain:\t\tNT AUTHORITY\n"
+                "\tLogon ID:\t\t0x3E7\n"
+                "\n"
+                "Target Subject:\n"
+                "\tSecurity ID:\t\tS-1-0-0\n"
+                "\tAccount Name:\t\t-\n"
+                "\tAccount Domain:\t\t-\n"
+                "\tLogon ID:\t\t0x0\n"
+                "\n"
+                "Process Information:\n"
+                f"\tNew Process ID:\t\t0x{new_pid:X}\n"
+                "\tNew Process Name:\tC:\\ProgramData\\WSPrint\\WSPrint.exe\n"
+                "\tToken Elevation Type:\t%%1936\n"
+                "\tMandatory Label:\tS-1-16-16384\n"
+                f"\tCreator Process ID:\t0x{creator_pid:X}\n"
+                "\tCreator Process Name:\tC:\\Windows\\System32\\svchost.exe\n"
+                "\tProcess Command Line:\tC:\\ProgramData\\WSPrint\\WSPrint.exe"
             ),
         )
 
         return {"sysmon": sysmon_lines, "wineventlog": [win_line]}
 
     def _persistence(self, ts, host, computer):
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         sysmon_lines = []
 
         win_line = self.winevent_fmt.format(
             ts, event_code=4698, computer=computer,
             task_category="Other Object Access Events", keywords="Audit Success",
+            record_number=self._next_winevent_record(),
             message=(
-                f"A scheduled task was created.\n"
-                f"Subject:\n"
-                f"  Security ID: S-1-5-18\n"
-                f"  Account Name: SYSTEM\n"
-                f"  Account Domain: NT AUTHORITY\n"
-                f"  Logon ID: 0x3E7\n"
-                f'Task Name: \\WSPrint\n'
-                f'Task Content: schtasks /create /tn WSPrint /tr "C:\\ProgramData\\WSPrint\\WSPrint.exe" /ru "SYSTEM" /sc onstart /F'
+                "A scheduled task was created.\n"
+                "\n"
+                "Subject:\n"
+                "\tSecurity ID:\t\tS-1-5-18\n"
+                "\tAccount Name:\t\tSYSTEM\n"
+                "\tAccount Domain:\t\tNT AUTHORITY\n"
+                "\tLogon ID:\t\t0x3E7\n"
+                "\n"
+                'Task Name:\t\\WSPrint\n'
+                'Task Content:\tschtasks /create /tn WSPrint /tr "C:\\ProgramData\\WSPrint\\WSPrint.exe" /ru "SYSTEM" /sc onstart /F'
             ),
         )
 
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=13, computer=computer, task=13, data_fields=[
-            ("RuleName", "technique_id=T1547.001,technique_name=Registry Run Keys"),
-            ("EventType", "SetValue"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\Windows\System32\msiexec.exe"),
-            ("TargetObject", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Default"),
-            ("Details", r"C:\ProgramData\WSPrint\WSPrint.exe"),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=13, computer=computer, task=13,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1547.001,technique_name=Registry Run Keys"),
+                ("EventType", "SetValue"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\Windows\System32\msiexec.exe"),
+                ("TargetObject", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Default"),
+                ("Details", r"C:\ProgramData\WSPrint\WSPrint.exe"),
+            ]))
 
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=13, computer=computer, task=13, data_fields=[
-            ("RuleName", "technique_id=T1053.005,technique_name=Scheduled Task"),
-            ("EventType", "SetValue"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\Windows\System32\svchost.exe"),
-            ("TargetObject", r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\WSPrint\Index"),
-            ("Details", "DWORD (0x00000000)"),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=13, computer=computer, task=13,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1053.005,technique_name=Scheduled Task"),
+                ("EventType", "SetValue"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\Windows\System32\svchost.exe"),
+                ("TargetObject", r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\WSPrint\Index"),
+                ("Details", "DWORD (0x00000000)"),
+            ]))
 
         return {"wineventlog": [win_line], "sysmon": sysmon_lines}
 
     def _driver_install(self, ts, host, computer):
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
         sysmon_lines = []
 
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=11, computer=computer, task=11, data_fields=[
-            ("RuleName", "technique_id=T1014,technique_name=Rootkit"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\Windows\System32\msiexec.exe"),
-            ("TargetFilename", r"C:\Windows\System32\drivers\WSPrint.sys"),
-            ("CreationUtcTime", ts_str),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=11, computer=computer, task=11,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1014,technique_name=Rootkit"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\Windows\System32\msiexec.exe"),
+                ("TargetFilename", r"C:\Windows\System32\drivers\WSPrint.sys"),
+                ("CreationUtcTime", ts_str),
+            ]))
 
-        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=13, computer=computer, task=13, data_fields=[
-            ("RuleName", "technique_id=T1543.003,technique_name=Windows Service"),
-            ("EventType", "SetValue"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\Windows\System32\msiexec.exe"),
-            ("TargetObject", r"HKLM\SYSTEM\CurrentControlSet\Services\VMTool\ImagePath"),
-            ("Details", r"\??\C:\Windows\System32\drivers\WSPrint.sys"),
-        ]))
+        sysmon_lines.append(self.sysmon_fmt.format(ts, event_id=13, computer=computer, task=13,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1543.003,technique_name=Windows Service"),
+                ("EventType", "SetValue"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\Windows\System32\msiexec.exe"),
+                ("TargetObject", r"HKLM\SYSTEM\CurrentControlSet\Services\VMTool\ImagePath"),
+                ("Details", r"\??\C:\Windows\System32\drivers\WSPrint.sys"),
+            ]))
 
         return {"sysmon": sysmon_lines}
 
     def _c2_beacon(self, ts, host, computer):
         c2_ip = self.rng.choice(self.topo.terndoor_c2_ips) if self.topo.terndoor_c2_ips else "154.205.154.82"
-        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
-        sysmon_line = self.sysmon_fmt.format(ts, event_id=3, computer=computer, task=3, data_fields=[
-            ("RuleName", "technique_id=T1071.001,technique_name=Web Protocols"),
-            ("UtcTime", ts_str),
-            ("ProcessGuid", self.topo.random_guid()),
-            ("ProcessId", str(self.topo.random_process_id())),
-            ("Image", r"C:\Windows\System32\msiexec.exe"),
-            ("User", r"NT AUTHORITY\SYSTEM"),
-            ("Protocol", "tcp"),
-            ("Initiated", "true"),
-            ("SourceIp", host.ip),
-            ("SourceHostname", self.topo.fqdn(host.hostname)),
-            ("SourcePort", str(self.topo.random_ephemeral_port())),
-            ("DestinationIp", c2_ip),
-            ("DestinationHostname", ""),
-            ("DestinationPort", "443"),
-        ])
+        sysmon_line = self.sysmon_fmt.format(ts, event_id=3, computer=computer, task=3,
+            record_id=self._next_sysmon_record(), sysmon_pid=SYSMON_PID, sysmon_tid=SYSMON_TID,
+            data_fields=[
+                ("RuleName", "technique_id=T1071.001,technique_name=Web Protocols"),
+                ("UtcTime", ts_str),
+                ("ProcessGuid", self.topo.random_guid()),
+                ("ProcessId", str(self.topo.random_process_id())),
+                ("Image", r"C:\Windows\System32\msiexec.exe"),
+                ("User", r"NT AUTHORITY\SYSTEM"),
+                ("Protocol", "tcp"),
+                ("Initiated", "true"),
+                ("SourceIp", host.ip),
+                ("SourceHostname", self.topo.fqdn(host.hostname)),
+                ("SourcePort", str(self.topo.random_ephemeral_port())),
+                ("DestinationIp", c2_ip),
+                ("DestinationHostname", ""),
+                ("DestinationPort", "443"),
+            ])
 
         dns_data = {
             "host_addr": [c2_ip],

@@ -10,7 +10,7 @@ ThreatGen produces a continuous stream of normal enterprise network traffic inte
 
 | Sourcetype | Output File | Format |
 |---|---|---|
-| WinEventLog | `wineventlog.log` | Windows Event Log XML |
+| WinEventLog | `wineventlog.log` | Multi-line key=value |
 | Sysmon | `sysmon.log` | Sysmon XML |
 | linux_secure | `linux_secure.log` | Syslog (PAM/sshd) |
 | Splunk Stream DNS | `stream_dns.log` | JSON |
