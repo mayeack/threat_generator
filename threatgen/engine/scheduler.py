@@ -35,7 +35,7 @@ GENERATOR_CLASSES: dict[str, type[BaseGenerator]] = {
     "firewall": FirewallGenerator,
 }
 
-MULTILINE_SOURCETYPES = {"wineventlog", "sysmon"}
+MULTILINE_SOURCETYPES: set[str] = set()
 
 
 class EngineState:

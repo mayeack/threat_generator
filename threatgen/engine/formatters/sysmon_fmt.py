@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from .base import BaseFormatter
@@ -8,7 +9,7 @@ SYSMON_GUID = "{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"
 
 
 class SysmonFormatter(BaseFormatter):
-    """Format events to match XmlWinEventLog:Microsoft-Windows-Sysmon/Operational."""
+    """Format events as single-line JSON for Sysmon."""
 
     def format(self, ts: datetime, **fields) -> str:
         event_id = fields.get("event_id", 1)
@@ -21,30 +22,24 @@ class SysmonFormatter(BaseFormatter):
 
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
-        data_xml = "\n    ".join(
-            f'<Data Name="{name}">{value}</Data>' for name, value in data_fields
-        )
+        event_data = {name: value for name, value in data_fields}
 
-        return (
-            f'<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">\n'
-            f"  <System>\n"
-            f'    <Provider Name="Microsoft-Windows-Sysmon" Guid="{SYSMON_GUID}" />\n'
-            f"    <EventID>{event_id}</EventID>\n"
-            f"    <Version>5</Version>\n"
-            f"    <Level>4</Level>\n"
-            f"    <Task>{task}</Task>\n"
-            f"    <Opcode>0</Opcode>\n"
-            f"    <Keywords>0x8000000000000000</Keywords>\n"
-            f'    <TimeCreated SystemTime="{ts_str}" />\n'
-            f"    <EventRecordID>{record_id}</EventRecordID>\n"
-            f"    <Correlation />\n"
-            f'    <Execution ProcessID="{sysmon_pid}" ThreadID="{sysmon_tid}" />\n'
-            f"    <Channel>Microsoft-Windows-Sysmon/Operational</Channel>\n"
-            f"    <Computer>{computer}</Computer>\n"
-            f'    <Security UserID="S-1-5-18" />\n'
-            f"  </System>\n"
-            f"  <EventData>\n"
-            f"    {data_xml}\n"
-            f"  </EventData>\n"
-            f"</Event>"
-        )
+        data = {
+            "timestamp": ts_str,
+            "Provider": "Microsoft-Windows-Sysmon",
+            "ProviderGuid": SYSMON_GUID,
+            "EventID": event_id,
+            "Version": 5,
+            "Level": 4,
+            "Task": task,
+            "Opcode": 0,
+            "Keywords": "0x8000000000000000",
+            "EventRecordID": record_id,
+            "ProcessID": sysmon_pid,
+            "ThreadID": sysmon_tid,
+            "Channel": "Microsoft-Windows-Sysmon/Operational",
+            "Computer": computer,
+            "UserID": "S-1-5-18",
+            "EventData": event_data,
+        }
+        return json.dumps(data, separators=(",", ":"))

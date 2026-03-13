@@ -1,21 +1,21 @@
 # ThreatGen
 
-A FastAPI web application that generates realistic, Splunk-compliant log files across 6 sourcetypes with embedded **UAT-9244** APT threat activity. Built for security analysts and threat hunters who need realistic data for detection engineering, SIEM tuning, and training exercises.
+A FastAPI web application that generates realistic, Splunk-compliant JSON log files across 6 sourcetypes with embedded **UAT-9244** APT threat activity. Every sourcetype emits single-line JSON for consistent parsing and field extraction. Built for security analysts and threat hunters who need realistic data for detection engineering, SIEM tuning, and training exercises.
 
 ## What It Does
 
-ThreatGen produces a continuous stream of normal enterprise network traffic interlaced with multi-phase APT campaign activity across correlated sourcetypes. All output is formatted for direct ingestion into Splunk.
+ThreatGen produces a continuous stream of normal enterprise network traffic interlaced with multi-phase APT campaign activity across correlated sourcetypes. All output is single-line JSON with a `timestamp` field, formatted for direct ingestion into Splunk with `KV_MODE = json`.
 
 ### Sourcetypes
 
 | Sourcetype | Output File | Format |
 |---|---|---|
-| WinEventLog | `wineventlog.log` | Multi-line key=value |
-| Sysmon | `sysmon.log` | Sysmon XML |
-| linux_secure | `linux_secure.log` | Syslog (PAM/sshd) |
-| Splunk Stream DNS | `stream_dns.log` | JSON |
-| Splunk Stream HTTP | `stream_http.log` | JSON |
-| Cisco ASA Firewall | `cisco_asa.log` | Cisco ASA syslog |
+| WinEventLog | `wineventlog.log` | Single-line JSON |
+| Sysmon | `sysmon.log` | Single-line JSON |
+| linux_secure | `linux_secure.log` | Single-line JSON |
+| Splunk Stream DNS | `stream_dns.log` | Single-line JSON |
+| Splunk Stream HTTP | `stream_http.log` | Single-line JSON |
+| Cisco ASA Firewall | `cisco_asa.log` | Single-line JSON |
 
 ### Threat Campaigns
 
@@ -45,7 +45,7 @@ threatgen/
     scheduler.py          # Async event loop, diurnal curve, file writers
     generators/           # One module per sourcetype (normal traffic)
     threats/              # UAT-9244 campaign generators + orchestrator
-    formatters/           # Output format helpers (WinEventLog, Sysmon XML, syslog, JSON)
+    formatters/           # JSON output formatters (one per sourcetype family)
 
   api/                    # FastAPI router modules
   static/                 # Frontend SPA (index.html, css/, js/)
@@ -159,7 +159,7 @@ All settings are editable through the web UI Configuration page or via the `/api
 
 ## Output
 
-Generated log files are written to the `output_dir` (default `./logs/`), created automatically when generation starts. Each sourcetype writes to its own file in append mode.
+Generated log files are written to the `output_dir` (default `./logs/`), created automatically when generation starts. Each sourcetype writes single-line JSON events to its own file in append mode. Every JSON object contains a `timestamp` field used by Splunk for time extraction.
 
 ## Dependencies
 
