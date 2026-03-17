@@ -1,0 +1,18 @@
+[]
+access = read : [ * ], write : [ admin ]
+export = system
+
+[collections/threat_hunt_response_plans]
+export = system
+
+[collections/threat_hunt_notable_staging]
+export = system
+
+[transforms/threat_hunt_response_plans]
+export = system
+
+[transforms/threat_hunt_notable_staging]
+export = system
+
+[savedsearches/Threat Hunt - Create Notable]
+export = system

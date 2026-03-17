@@ -108,6 +108,16 @@ class Topology:
         self.peertime_domains: list[str] = []
         self.peertime_ips: list[str] = []
         self.bruteentry_ips: list[str] = []
+        self.cobaltstrike_domains: list[str] = []
+        self.cobaltstrike_ips: list[str] = []
+        self.darkgate_ips: list[str] = []
+        self.cryptojack_pools: list[str] = []
+        self.cryptojack_ips: list[str] = []
+        self.ransomsim_ips: list[str] = []
+        self.phishkit_domains: list[str] = []
+        self.phishkit_proxy_ips: list[str] = []
+        self.snakebyte_domains: list[str] = []
+        self.snakebyte_ips: list[str] = []
 
     def set_iocs(self, campaigns: dict[str, Any]) -> None:
         td = campaigns.get("terndoor", {})
@@ -117,6 +127,22 @@ class Topology:
         pt = campaigns.get("peertime", {})
         self.peertime_domains = pt.get("domains", [])
         self.peertime_ips = pt.get("c2_ips", [])
+        cs = campaigns.get("cobaltstrike", {})
+        self.cobaltstrike_domains = cs.get("c2_domains", [])
+        self.cobaltstrike_ips = cs.get("c2_ips", [])
+        dg = campaigns.get("darkgate", {})
+        self.darkgate_ips = dg.get("c2_ips", [])
+        cj = campaigns.get("cryptojack", {})
+        self.cryptojack_pools = cj.get("mining_pools", [])
+        self.cryptojack_ips = cj.get("c2_ips", [])
+        rs = campaigns.get("ransomsim", {})
+        self.ransomsim_ips = rs.get("c2_ips", [])
+        pk = campaigns.get("phishkit", {})
+        self.phishkit_domains = pk.get("phish_domains", [])
+        self.phishkit_proxy_ips = pk.get("proxy_ips", [])
+        sb = campaigns.get("snakebyte", {})
+        self.snakebyte_domains = sb.get("c2_domains", [])
+        self.snakebyte_ips = sb.get("c2_ips", [])
 
     def random_windows_host(self) -> WindowsHost:
         return self.rng.choice(self.windows_hosts)

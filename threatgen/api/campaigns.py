@@ -27,6 +27,42 @@ CAMPAIGN_META = {
         "mitre_techniques": ["T1071.001", "T1059.004", "T1036.004", "T1610"],
         "ioc_keys": ["domains", "c2_ips"],
     },
+    "cobaltstrike": {
+        "name": "CobaltStrike",
+        "description": "Cobalt Strike beacon deployment via PowerShell cradle, process hollowing into rundll32, named pipe C2, and WinRM lateral movement.",
+        "mitre_techniques": ["T1059.001", "T1071.001", "T1055.012", "T1021.006", "T1105"],
+        "ioc_keys": ["c2_domains", "c2_ips"],
+    },
+    "darkgate": {
+        "name": "DarkGate",
+        "description": "DarkGate MaaS loader distributed via malicious MSI attachments, using AutoIt scripts for execution, browser credential harvesting, and C2 exfiltration.",
+        "mitre_techniques": ["T1566.001", "T1218.007", "T1059.010", "T1555.003", "T1041"],
+        "ioc_keys": ["c2_ips"],
+    },
+    "cryptojack": {
+        "name": "CryptoJack",
+        "description": "XMRig cryptominer deployed on Linux hosts via wget download, cron persistence, and Stratum protocol connections to mining pools.",
+        "mitre_techniques": ["T1496", "T1059.004", "T1053.003", "T1105"],
+        "ioc_keys": ["mining_pools", "c2_ips"],
+    },
+    "ransomsim": {
+        "name": "RansomSim",
+        "description": "Ransomware simulation with Volume Shadow Copy deletion, security service termination, mass file encryption, and ransom note deployment.",
+        "mitre_techniques": ["T1486", "T1490", "T1489", "T1059.001", "T1547.001"],
+        "ioc_keys": ["c2_ips"],
+    },
+    "phishkit": {
+        "name": "PhishKit",
+        "description": "Adversary-in-the-middle credential phishing proxy capturing OAuth tokens and session cookies, followed by anomalous mailbox access from external IPs.",
+        "mitre_techniques": ["T1566.002", "T1557", "T1539", "T1114.002", "T1078"],
+        "ioc_keys": ["phish_domains", "proxy_ips"],
+    },
+    "snakebyte": {
+        "name": "SnakeByte",
+        "description": "APT-style data exfiltration using SMB file collection, 7-Zip archive staging, DNS tunneling with encoded subdomains, and HTTPS bulk transfer.",
+        "mitre_techniques": ["T1048.001", "T1071.004", "T1132.001", "T1560.001", "T1005"],
+        "ioc_keys": ["c2_domains", "c2_ips"],
+    },
 }
 
 

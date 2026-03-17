@@ -54,6 +54,58 @@ threat_campaigns:
     c2_ips:
       - "185.196.10.247"
       - "185.196.10.38"
+  cobaltstrike:
+    enabled: true
+    interval_minutes: [10, 40]
+    c2_domains:
+      - "cdn-update.azureedge.info"
+      - "static-assets.msedge.info"
+      - "dl.cloudfront-cdn.org"
+    c2_ips:
+      - "91.215.85.142"
+      - "194.165.16.73"
+  darkgate:
+    enabled: true
+    interval_minutes: [15, 50]
+    c2_ips:
+      - "5.188.86.114"
+      - "179.60.150.34"
+      - "45.89.65.198"
+  cryptojack:
+    enabled: true
+    interval_minutes: [20, 60]
+    mining_pools:
+      - "pool.minexmr.com"
+      - "xmr-us-east1.nanopool.org"
+      - "pool.hashvault.pro"
+    c2_ips:
+      - "104.238.222.60"
+      - "209.141.40.193"
+  ransomsim:
+    enabled: true
+    interval_minutes: [30, 90]
+    c2_ips:
+      - "193.233.20.57"
+      - "176.113.115.84"
+  phishkit:
+    enabled: true
+    interval_minutes: [10, 35]
+    phish_domains:
+      - "login-microsoftonline.click"
+      - "auth-office365.support"
+      - "secure-portal.cloud"
+    proxy_ips:
+      - "79.137.202.91"
+      - "45.153.243.106"
+  snakebyte:
+    enabled: true
+    interval_minutes: [30, 90]
+    c2_domains:
+      - "ns1.dnsupdate.info"
+      - "mx2.mailrouter.cloud"
+    c2_ips:
+      - "185.141.63.120"
+      - "195.123.226.48"
 
 topology:
   domain_name: CORPDOMAIN

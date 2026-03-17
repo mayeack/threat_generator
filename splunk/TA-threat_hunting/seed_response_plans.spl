@@ -1,0 +1,66 @@
+| makeresults
+| eval plan_id="T1105",
+       mitre_technique_id="T1105",
+       technique_name="Ingress Tool Transfer",
+       security_domain="network",
+       containment_steps="1. Block outbound communication to the C2 IP at the perimeter firewall\n2. Isolate the affected host from the network\n3. Preserve volatile memory and disk image before remediation\n4. Block the C2 domain/IP across all egress points (proxy, DNS sinkhole, firewall)",
+       investigation_steps="1. Run drilldown search to review all HTTP/HTTPS communications to the C2 IP\n2. Identify all files downloaded from the C2 server (check URI paths, content lengths)\n3. Search for the downloaded binary hash across all endpoints\n4. Check for lateral movement originating from the affected host\n5. Review process execution logs for post-download activity on the affected host\n6. Cross-reference the C2 IP with threat intelligence feeds",
+       eradication_steps="1. Remove all downloaded binaries and associated files from the affected host\n2. Scan the host for additional malware or persistence mechanisms\n3. Verify no scheduled tasks, services, or registry keys were created by the payload\n4. Reset credentials for any accounts that were active on the compromised host",
+       recovery_steps="1. Re-image the host if persistence or additional compromise is confirmed\n2. Restore from known-good backup if available and verified clean\n3. Reconnect to network with enhanced monitoring for 72 hours\n4. Validate the host is functioning normally and no C2 callbacks resume",
+       escalation_criteria="Escalate to IR team if: lateral movement confirmed, data exfiltration detected, additional hosts communicating with the same C2, or the binary is identified as a known APT tool"
+| append
+    [| makeresults
+    | eval plan_id="T1543.003",
+           mitre_technique_id="T1543.003",
+           technique_name="Create or Modify System Process: Windows Service",
+           security_domain="endpoint",
+           containment_steps="1. Disable the suspicious Windows service immediately (sc stop / sc config start=disabled)\n2. Isolate the affected host from the network\n3. Capture a memory dump of the service process before termination\n4. Block the service binary hash across endpoint protection tools",
+           investigation_steps="1. Run drilldown search to review all Sysmon process creation events for the service binary\n2. Examine the service configuration (ImagePath, start type, account) via registry events\n3. Check for DLL sideloading by reviewing loaded modules (Sysmon EventID 7)\n4. Trace the installation chain: what process created the service and how did the binary arrive\n5. Search for the same binary hash or service name across all endpoints\n6. Review the binary for indicators (signing status, compilation timestamp, imports)",
+           eradication_steps="1. Delete the malicious service binary and any associated DLLs\n2. Remove the service registration from the registry\n3. Check for and remove any scheduled tasks or additional persistence\n4. Scan the host for related malware using updated signatures",
+           recovery_steps="1. Re-image the host if the service executed with SYSTEM privileges and ran for extended time\n2. Reset credentials for the SYSTEM account and any accounts that interacted with the host\n3. Restore legitimate services if any were modified\n4. Monitor the host for 72 hours for recurrence of the service or related activity",
+           escalation_criteria="Escalate to IR team if: the service ran as SYSTEM for an extended period, multiple hosts have the same service, or the binary communicates with external infrastructure"]
+| append
+    [| makeresults
+    | eval plan_id="T1110.001",
+           mitre_technique_id="T1110.001",
+           technique_name="Brute Force: Password Guessing",
+           security_domain="access",
+           containment_steps="1. Block the source IP at the perimeter firewall and host-based firewall\n2. If attacks target SSH, restrict SSH access to authorized IP ranges only\n3. Enforce account lockout after threshold failures on targeted accounts\n4. Enable rate limiting on the authentication service",
+           investigation_steps="1. Run drilldown search to enumerate all failed authentication attempts from the source IP\n2. Determine which accounts were targeted and whether any succeeded\n3. Check if the source IP appears in other log sources (firewall, proxy, DNS)\n4. Review successful logins from the source IP or to targeted accounts for signs of compromise\n5. Check for post-authentication activity if any brute force attempts succeeded\n6. Cross-reference the source IP with threat intelligence feeds and abuse databases",
+           eradication_steps="1. Force password reset for any accounts that were successfully accessed\n2. Revoke active sessions for compromised accounts\n3. Remove any SSH keys or credentials planted by the attacker\n4. Review and remove any backdoor accounts or authorized_keys modifications",
+           recovery_steps="1. Enforce MFA on all externally accessible authentication services\n2. Implement fail2ban or equivalent IP-based blocking for repeated failures\n3. Verify account lockout policies are effective and aligned with policy\n4. Monitor targeted accounts and source network ranges for 30 days",
+           escalation_criteria="Escalate to IR team if: any brute force attempt succeeded, the source IP is associated with known threat actors, or the attack targeted privileged/admin accounts"]
+| append
+    [| makeresults
+    | eval plan_id="T1110.003",
+           mitre_technique_id="T1110.003",
+           technique_name="Brute Force: Password Spraying",
+           security_domain="access",
+           containment_steps="1. Block the source IP(s) at the perimeter firewall\n2. Temporarily increase account lockout sensitivity for targeted domain\n3. Enable enhanced authentication logging on domain controllers\n4. If internal source, isolate the host conducting the spray",
+           investigation_steps="1. Run drilldown search to enumerate all authentication events from the spraying source\n2. Identify the full list of accounts targeted (look for low-count failures across many accounts)\n3. Determine whether any spray attempts resulted in successful authentication\n4. Check for Kerberos anomalies (AS-REQ patterns, unusual ticket requests)\n5. Review post-authentication activity for any successfully compromised accounts\n6. Determine if the spray used a known password list or targeted pattern",
+           eradication_steps="1. Force password reset for all successfully compromised accounts\n2. Revoke all active sessions and tokens for compromised accounts\n3. If internal source, investigate and remediate the compromised host conducting the spray\n4. Review and remove any persistence established via compromised accounts",
+           recovery_steps="1. Enforce MFA across all accounts in the targeted domain\n2. Implement password policy that blocks commonly sprayed passwords\n3. Deploy Azure AD Password Protection or equivalent for on-prem AD\n4. Monitor all targeted accounts for 30 days for anomalous access patterns",
+           escalation_criteria="Escalate to IR team if: any accounts were successfully compromised, the spray originated from inside the network, or privileged accounts were among the targets"]
+| append
+    [| makeresults
+    | eval plan_id="T1046",
+           mitre_technique_id="T1046",
+           technique_name="Network Service Scanning",
+           security_domain="network",
+           containment_steps="1. Block the scanning source IP at the perimeter firewall\n2. If internal source, isolate the host immediately\n3. Review and tighten firewall rules for scanned ports/services\n4. Enable enhanced IDS/IPS signatures for the scanning source",
+           investigation_steps="1. Run drilldown search to enumerate all firewall deny events from the scanning source\n2. Map all ports and services targeted by the scan\n3. Determine if any scanned services were accessible (allowed connections)\n4. Check if the source IP conducted any follow-up activity after the scan\n5. Cross-reference the source IP with other log sources (DNS, HTTP, authentication)\n6. Assess whether the scan was reconnaissance for a specific attack chain",
+           eradication_steps="1. Ensure all scanned services are properly hardened and patched\n2. Close any unnecessary ports exposed to the scanning source\n3. If internal source, investigate and remediate the host (possible compromise)\n4. Review and update network segmentation to limit exposure",
+           recovery_steps="1. Verify all targeted services are functioning normally\n2. Conduct vulnerability scan of exposed services from the attacker's perspective\n3. Implement network-based anomaly detection for future scanning activity\n4. Review firewall rules to ensure least-privilege network access",
+           escalation_criteria="Escalate to IR team if: scanning preceded a successful exploitation attempt, the source IP is associated with known threat actors, or internal hosts were the scanning source"]
+| append
+    [| makeresults
+    | eval plan_id="T1071.001",
+           mitre_technique_id="T1071.001",
+           technique_name="Application Layer Protocol: Web Protocols",
+           security_domain="network",
+           containment_steps="1. Block the C2 domain and IP at the proxy, firewall, and DNS (sinkhole)\n2. Isolate any hosts communicating with the C2 infrastructure\n3. Capture network traffic (PCAP) for the C2 communication before blocking\n4. Add the C2 indicators to threat intelligence blocklists",
+           investigation_steps="1. Run drilldown search to review all HTTP/HTTPS traffic to the C2 destination\n2. Analyze request patterns: beaconing intervals, URI paths, user-agent strings, payload sizes\n3. Identify all internal hosts that communicated with the C2 infrastructure\n4. Extract and analyze any data that was transmitted to the C2 server\n5. Check for encrypted or encoded payloads in HTTP request/response bodies\n6. Correlate with endpoint logs to identify the process responsible for the C2 traffic",
+           eradication_steps="1. Identify and remove the malware or implant generating C2 traffic on each affected host\n2. Remove any persistence mechanisms associated with the C2 implant\n3. Reset credentials for accounts on affected hosts\n4. Scan all affected hosts for additional malware or backdoors",
+           recovery_steps="1. Re-image affected hosts if the C2 implant had extended dwell time or SYSTEM access\n2. Restore from verified clean backups where available\n3. Reconnect hosts to network with enhanced monitoring\n4. Monitor DNS and HTTP logs for C2 callback attempts for 30 days",
+           escalation_criteria="Escalate to IR team if: data exfiltration is confirmed, multiple hosts have active C2 sessions, the C2 infrastructure is attributed to a known APT, or the C2 channel was active for more than 24 hours"]
+| outputlookup threat_hunt_response_plans

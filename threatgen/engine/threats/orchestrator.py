@@ -7,13 +7,25 @@ from ..config import CampaignConfig
 from ..topology import Topology
 from .base import BaseCampaign
 from .bruteentry import BruteEntryCampaign
+from .cobaltstrike import CobaltStrikeCampaign
+from .cryptojack import CryptoJackCampaign
+from .darkgate import DarkGateCampaign
 from .peertime import PeerTimeCampaign
+from .phishkit import PhishKitCampaign
+from .ransomsim import RansomSimCampaign
+from .snakebyte import SnakeByteCampaign
 from .terndoor import TernDoorCampaign
 
 CAMPAIGN_CLASSES: dict[str, type[BaseCampaign]] = {
     "terndoor": TernDoorCampaign,
     "bruteentry": BruteEntryCampaign,
     "peertime": PeerTimeCampaign,
+    "cobaltstrike": CobaltStrikeCampaign,
+    "darkgate": DarkGateCampaign,
+    "cryptojack": CryptoJackCampaign,
+    "ransomsim": RansomSimCampaign,
+    "phishkit": PhishKitCampaign,
+    "snakebyte": SnakeByteCampaign,
 }
 
 
