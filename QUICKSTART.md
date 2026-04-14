@@ -21,7 +21,7 @@ Defined in `requirements.txt`:
 ## 1. Set Up
 
 ```bash
-cd /Applications/ThreatGen
+cd /Applications/ThreatGenerator
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -53,7 +53,7 @@ Switch to the **Log Viewer** tab. Select a sourcetype to watch events stream in 
 
 ## 6. Trigger a Threat Campaign
 
-Go to the **Campaigns** tab and click **Trigger Now** on any campaign card (TernDoor, BruteEntry, or PeerTime). Watch correlated threat events appear across multiple sourcetypes in the Log Viewer.
+Go to the **Campaigns** tab and click **Trigger Now** on any of the 9 campaign cards. Watch correlated threat events appear across multiple sourcetypes in the Log Viewer.
 
 ## 7. Ingest into Splunk
 
@@ -235,13 +235,19 @@ sudo /opt/splunkforwarder/bin/splunk restart
 | `http` | `logs/stream_http.log` | Single-line JSON | 1 |
 | `firewall` | `logs/cisco_asa.log` | Single-line JSON | 1 |
 
-### Embedded Threat Campaigns (UAT-9244)
+### Embedded Threat Campaigns
 
 | Campaign | Class | Phases | Sourcetypes Affected |
 |---|---|---|---|
 | TernDoor | `TernDoorCampaign` | 5 | sysmon, wineventlog, dns, firewall |
 | BruteEntry | `BruteEntryCampaign` | 3 | linux_secure, firewall, dns, http |
 | PeerTime | `PeerTimeCampaign` | 4 | dns, http, linux_secure, firewall |
+| CobaltStrike | `CobaltStrikeCampaign` | 4 | sysmon, dns, firewall, wineventlog |
+| DarkGate | `DarkGateCampaign` | 4 | sysmon, wineventlog, firewall |
+| CryptoJack | `CryptoJackCampaign` | 4 | linux_secure, http, firewall, dns |
+| RansomSim | `RansomSimCampaign` | 4 | sysmon, wineventlog, firewall |
+| PhishKit | `PhishKitCampaign` | 4 | dns, http, firewall |
+| SnakeByte | `SnakeByteCampaign` | 4 | sysmon, wineventlog, dns, firewall |
 
 ## Common Tasks
 
