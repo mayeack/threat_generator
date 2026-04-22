@@ -1,0 +1,892 @@
+{
+  "title": "Threat Hunt — Active Campaign Monitoring",
+  "description": "PEAK hunt single-pane view: authentication attacks, C2/malware delivery, endpoint execution, persistence, and staging/exfil indicators. Use filters and row drilldowns to pivot into Search.",
+  "inputs": {
+    "input_tok_time": {
+      "type": "input.timerange",
+      "title": "Time range",
+      "options": {
+        "token": "tok_time",
+        "defaultValue": "-30d@d,now"
+      }
+    },
+    "input_host": {
+      "type": "input.multiselect",
+      "title": "Host filter (optional)",
+      "options": {
+        "token": "tok_host",
+        "defaultValue": "",
+        "items": "> primary | objects()"
+      },
+      "dataSources": {
+        "primary": "ds_host_items"
+      }
+    },
+    "input_src_ip": {
+      "type": "input.text",
+      "title": "Source IP filter (comma-separated, optional)",
+      "options": {
+        "token": "tok_src_ip",
+        "defaultValue": "",
+        "placeholder": "e.g. 185.196.10.38,10.0.0.5"
+      }
+    }
+  },
+  "defaults": {
+    "dataSources": {
+      "ds.search": {
+        "options": {
+          "queryParameters": {
+            "earliest": "$tok_time.earliest$",
+            "latest": "$tok_time.latest$"
+          }
+        }
+      }
+    },
+    "tokens": {
+      "default": {
+        "tok_host": {
+          "value": ""
+        },
+        "tok_src_ip": {
+          "value": ""
+        }
+      }
+    }
+  },
+  "dataSources": {
+    "ds_host_items": {
+      "type": "ds.search",
+      "name": "Host picker",
+      "options": {
+        "query": "| tstats count WHERE index=threat_gen by host | sort host | eval label=host | eval value=host | fields label, value",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_total": {
+      "type": "ds.search",
+      "name": "KPI total indicators",
+      "options": {
+        "query": "index=threat_gen (EventCode=4625 OR \"Failed password\" OR \"%ASA-4-106023\" OR dnsupdate.info OR bloopencil.net OR xcit76.com OR xtibh.com OR \"185.196.10.38\" OR \"185.196.10.247\" OR \"212.11.64.105\" OR \"104.238.222.60\" OR \"79.137.202.91\") | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats count",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_accounts": {
+      "type": "ds.search",
+      "name": "KPI compromised accounts",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4624 | rex field=Message \"New Logon:[\\s\\S]+?Account Name:[^A-Za-z]+(?<user>[A-Za-z0-9_\\-\\.]+)\" | search user IN (sysadmin,itadmin,netops,gwhite,jsmith,jdoe,abrown,cjohnson,dlee,egarcia,fmartinez,hthompson,mwilson) | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats dc(user) as compromised_accounts",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_hosts": {
+      "type": "ds.search",
+      "name": "KPI suspicious hosts",
+      "options": {
+        "query": "index=threat_gen (host=WS-DEV01* OR host=WS-DEV02* OR host=WS-DEV03* OR ComputerName=WS-DEV01* OR ComputerName=WS-DEV02* OR ComputerName=WS-DEV03*) | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats dc(coalesce(ComputerName,host)) as hosts",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_ext_ips": {
+      "type": "ds.search",
+      "name": "KPI external IPs list size",
+      "options": {
+        "query": "| makeresults | eval ips=\"185.196.10.38,185.196.10.247,212.11.64.105,104.238.222.60,79.137.202.91\" | eval count=mvcount(split(ips,\",\"))",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_spray": {
+      "type": "ds.search",
+      "name": "Password spray",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"WinEventLog:Security\" (EventCode=4625 OR EventCode=4624) | rex field=Message \"Source Network Address:[^0-9]+(?<src_ip>[0-9\\.]+)\" | rex field=Message \"Account For Which Logon Failed:[\\s\\S]+?Account Name:[^A-Za-z]+(?<fail_user>[A-Za-z0-9_\\-\\.\\$]+)\" | rex field=Message \"New Logon:[\\s\\S]+?Account Name:[^A-Za-z]+(?<succ_user>[A-Za-z0-9_\\-\\.\\$]+)\" | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | eval outcome=if(EventCode=4624,\"success\",\"fail\") | stats count(eval(outcome=\"fail\")) as failures, count(eval(outcome=\"success\")) as successes by src_ip | where failures+successes >= 5 | sort - failures - successes | head 20",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_ssh": {
+      "type": "ds.search",
+      "name": "SSH brute force",
+      "options": {
+        "query": "index=threat_gen sourcetype=linux_secure \"Failed password\" | rex \"Failed password for (invalid user )?(?<user>[^\\s]+) from (?<src_ip>[\\d\\.]+)\" | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats count as failures, dc(user) as users_tried, values(user) as users by src_ip | where failures > 30 | sort -failures",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_http": {
+      "type": "ds.search",
+      "name": "Suspicious HTTP",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"stream:http\" (bloopencil.net OR xcit76.com OR xtibh.com OR \"185.196.10\" OR \"104.238.222.60\" OR \"79.137.202.91\") | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | rex \"\\\"http_user_agent\\\":\\\"(?<ua>[^\\\"]+)\\\"\" | rex \"\\\"site\\\":\\\"(?<site>[^\\\"]+)\\\"\" | rex \"\\\"uri_path\\\":\\\"(?<uri>[^\\\"]+)\\\"\" | rex \"\\\"src_ip\\\":\\\"(?<src>[^\\\"]+)\\\"\" | rex \"\\\"dest_ip\\\":\\\"(?<dst>[^\\\"]+)\\\"\" | stats count, values(ua) as agents, values(uri) as uris by src, dst, site | sort -count",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_dns": {
+      "type": "ds.search",
+      "name": "DNS tunneling",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"stream:dns\" | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | spath path=query{} output=qname | eval qlen=len(qname) | where qlen > 40 AND match(qname, \"[a-z0-9]{20,}\\.\") | stats count, max(qlen) as maxlen, values(src_ip) as src_ips, values(query_type{}) as qtypes by qname | sort -count | head 25",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_ps": {
+      "type": "ds.search",
+      "name": "Encoded PowerShell",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" (\"encodedcommand\" OR \"-enc \" OR \"FromBase64String\" OR \"DownloadString\" OR \"Invoke-Expression\" OR \" IEX \") | rex \"EventID\\\":(?<eid>\\d+)\" | rex \"\\\"Image\\\":\\\"(?<image>[^\\\"]+)\\\"\" | rex \"\\\"CommandLine\\\":\\\"(?<cmdline>[^\\\"]+)\\\"\" | rex \"\\\"Computer\\\":\\\"(?<host>[^\\\"]+)\\\"\" | rex \"\\\"User\\\":\\\"(?<user>[^\\\"]+)\\\"\" | search eid=1 | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats count, values(cmdline) as commands by host, user | sort -count | head 15",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_bin": {
+      "type": "ds.search",
+      "name": "Suspicious binaries paths",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" (AppData OR Temp OR ProgramData) | rex \"EventID\\\":(?<eid>\\d+)\" | rex \"\\\"Image\\\":\\\"(?<image>[^\\\"]+)\\\"\" | rex \"\\\"CommandLine\\\":\\\"(?<cmdline>[^\\\"]+)\\\"\" | rex \"\\\"Computer\\\":\\\"(?<host>[^\\\"]+)\\\"\" | rex \"\\\"User\\\":\\\"(?<user>[^\\\"]+)\\\"\" | search eid=1 (image=\"*\\\\\\\\Temp\\\\*\" OR image=\"*\\\\\\\\AppData\\\\*\" OR image=\"*\\\\\\\\ProgramData\\\\*\") | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats count, values(image) as images, values(cmdline) as commands by host, user | sort -count | head 20",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_runkey": {
+      "type": "ds.search",
+      "name": "Run key persistence",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" \"CurrentVersion\\\\Run\" | rex \"\\\"Image\\\":\\\"(?<image>[^\\\"]+)\\\"\" | rex \"\\\"TargetObject\\\":\\\"(?<target>[^\\\"]+)\\\"\" | rex \"\\\"Computer\\\":\\\"(?<host>[^\\\"]+)\\\"\" | rex \"\\\"Details\\\":\\\"(?<details>[^\\\"]+)\\\"\" | where NOT match(image, \"MsMpEng|SecurityHealth|OneDrive|Teams\") | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats count, values(image) as images, values(target) as keys, values(details) as details by host | sort -count | head 20",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_7z": {
+      "type": "ds.search",
+      "name": "Archive tooling",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" (\"7za.exe\" OR \"7z.exe\" OR \"winrar\" OR \"rar.exe\") | rex \"EventID\\\":(?<eid>\\d+)\" | rex \"\\\"Image\\\":\\\"(?<image>[^\\\"]+)\\\"\" | rex \"\\\"CommandLine\\\":\\\"(?<cmdline>[^\\\"]+)\\\"\" | rex \"\\\"Computer\\\":\\\"(?<host>[^\\\"]+)\\\"\" | rex \"\\\"User\\\":\\\"(?<user>[^\\\"]+)\\\"\" | search eid=1 | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")), __ts=trim(replace(\"$tok_src_ip|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\")) OR ComputerName IN (split(__th,\",\"))) | where (len(__ts)<1 OR __ts=\"*\" OR (isnotnull(src_ip) AND src_ip IN (split(__ts,\",\"))) OR (isnotnull(src) AND src IN (split(__ts,\",\")))) | stats count, values(cmdline) as commands by host, user | sort -count | head 20",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    },
+    "ds_asa": {
+      "type": "ds.search",
+      "name": "ASA connections timechart",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"cisco:asa\" (\"185.196.10\" OR \"104.238.222.60\" OR \"212.11.64.105\" OR \"79.137.202.91\") message_id=302013 | eval __th=trim(replace(\"$tok_host|n$\",\" \",\"\")) | where (len(__th)<1 OR __th=\"*\" OR host IN (split(__th,\",\"))) | timechart span=1h count by message_id",
+        "queryParameters": {
+          "earliest": "$tok_time.earliest$",
+          "latest": "$tok_time.latest$"
+        }
+      }
+    }
+  },
+  "visualizations": {
+    "md_g1": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Campaign overview\n**KPIs** summarizing hunt indicators (respect time range and filters)."
+      }
+    },
+    "kpi_total": {
+      "type": "splunk.singlevalue",
+      "title": "Total attack indicators",
+      "description": "Matching hunt IOC strings and auth/ASA/DNS noise (30d window).",
+      "dataSources": {
+        "primary": "ds_kpi_total"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Matching events",
+        "majorColor": "> primary | rangeValue(indicatorColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "indicatorColors": [
+          {
+            "from": 10000,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 1000,
+            "value": "#F1813F"
+          },
+          {
+            "from": 1,
+            "value": "#F8BE34"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      }
+    },
+    "kpi_accounts": {
+      "type": "splunk.singlevalue",
+      "title": "Compromised accounts (distinct)",
+      "description": "Successful logons for watchlisted usernames.",
+      "dataSources": {
+        "primary": "ds_kpi_accounts"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Distinct users",
+        "majorColor": "> primary | rangeValue(accountColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "accountColors": [
+          {
+            "from": 1,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      }
+    },
+    "kpi_hosts": {
+      "type": "splunk.singlevalue",
+      "title": "Hosts with suspicious activity",
+      "description": "Distinct WS-DEV* endpoints with coalesced host name.",
+      "dataSources": {
+        "primary": "ds_kpi_hosts"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Distinct hosts",
+        "majorColor": "> primary | rangeValue(hostColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "hostColors": [
+          {
+            "from": 1,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      }
+    },
+    "kpi_ext_ips": {
+      "type": "splunk.singlevalue",
+      "title": "Tracked attacker IPs (campaign set)",
+      "description": "Count of known-bad IPs in the hunt corpus (static list).",
+      "dataSources": {
+        "primary": "ds_kpi_ext_ips"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "IPs in watchlist",
+        "majorColor": "#DD9900",
+        "numberPrecision": 0
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      }
+    },
+    "md_g2": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Authentication attacks\n**Password spray** and **SSH brute force**."
+      }
+    },
+    "md_g3": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Command & control / malware delivery\n**HTTP** and **DNS** tunneling patterns."
+      }
+    },
+    "md_g4": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Endpoint execution & persistence\n**PowerShell**, **user-writable binaries**, **Run keys**."
+      }
+    },
+    "md_g5": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Data staging & exfiltration\n**Archive tooling** and **ASA** egress signals."
+      }
+    },
+    "col_spray": {
+      "type": "splunk.column",
+      "title": "Password spray — failures vs successes by source IP (top 20)",
+      "description": "Windows Security 4625/4624 with extracted source network address.",
+      "dataSources": {
+        "primary": "ds_spray"
+      },
+      "options": {
+        "stackMode": "grouped",
+        "seriesColors": [
+          "#DC4E41",
+          "#53A051"
+        ],
+        "legendDisplay": "right",
+        "xAxisLabelRotation": -45,
+        "dataValuesDisplay": "off"
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"WinEventLog:Security\" (EventCode=4625 OR EventCode=4624) earliest=$tok_time.earliest$ latest=$tok_time.latest$ | rex field=Message \"Source Network Address:[^0-9]+(?<src_ip>[0-9\\.]+)\" | search src_ip=$row.src_ip.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_ssh": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "SSH brute force — external IPs targeting common accounts",
+      "description": "linux_secure failed password events; failures > 30. Click row to pivot.",
+      "dataSources": {
+        "primary": "ds_ssh"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=linux_secure \"Failed password\" earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search src_ip=$row.src_ip.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_http": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "Suspicious outbound HTTP (top external URIs)",
+      "description": "stream:http to hunt-related domains or IPs.",
+      "dataSources": {
+        "primary": "ds_http"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"stream:http\" earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search src=$row.src.value|s$ dest=$row.dst.value|s$ site=$row.site.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_dns": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "DNS tunneling — long random subdomains",
+      "description": "stream:dns queries with length > 40 and long label pattern.",
+      "dataSources": {
+        "primary": "ds_dns"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"stream:dns\" earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search qname=$row.qname.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_ps": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "Encoded PowerShell executions by host/user",
+      "description": "Sysmon EID 1 with suspicious script indicators.",
+      "dataSources": {
+        "primary": "ds_ps"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search host=$row.host.value|s$ user=$row.user.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_bin": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "Suspicious binaries in user-writable paths",
+      "description": "Sysmon EID 1 under Temp, AppData, or ProgramData.",
+      "dataSources": {
+        "primary": "ds_bin"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" EventCode=1 earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search host=$row.host.value|s$ user=$row.user.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_run": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "Autorun / Run key persistence writes",
+      "description": "Sysmon registry events excluding common security/IT noise.",
+      "dataSources": {
+        "primary": "ds_runkey"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" \"CurrentVersion\\\\Run\" earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search host=$row.host.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "tbl_7z": {
+      "type": "splunk.table",
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "title": "7-Zip / archive creation (possible ransomware or exfil)",
+      "description": "Sysmon process create for common archive utilities.",
+      "dataSources": {
+        "primary": "ds_7z"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" (\"7za.exe\" OR \"7z.exe\" OR \"winrar\" OR \"rar.exe\") earliest=$tok_time.earliest$ latest=$tok_time.latest$ | search host=$row.host.value|s$ user=$row.user.value|s$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "line_asa": {
+      "type": "splunk.line",
+      "title": "Outbound connections to known-bad IPs (ASA teardown)",
+      "description": "cisco:asa message_id 302013 time series (1h buckets).",
+      "dataSources": {
+        "primary": "ds_asa"
+      },
+      "options": {
+        "legendDisplay": "bottom",
+        "seriesColors": [
+          "#7B56DB",
+          "#009CEB",
+          "#00CDAF",
+          "#DD9900"
+        ],
+        "yAxisTitleText": "Event count"
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      }
+    }
+  },
+  "layout": {
+    "globalInputs": [
+      "input_tok_time",
+      "input_host",
+      "input_src_ip"
+    ],
+    "tabs": {
+      "items": [
+        {
+          "layoutId": "layout_1",
+          "label": "Overview"
+        }
+      ]
+    },
+    "layoutDefinitions": {
+      "layout_1": {
+        "type": "grid",
+        "options": {
+          "width": 1440,
+          "backgroundColor": "#111215"
+        },
+        "structure": [
+          {
+            "item": "md_g1",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "kpi_total",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 44,
+              "w": 360,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_accounts",
+            "type": "block",
+            "position": {
+              "x": 360,
+              "y": 44,
+              "w": 360,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_hosts",
+            "type": "block",
+            "position": {
+              "x": 720,
+              "y": 44,
+              "w": 360,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_ext_ips",
+            "type": "block",
+            "position": {
+              "x": 1080,
+              "y": 44,
+              "w": 360,
+              "h": 150
+            }
+          },
+          {
+            "item": "md_g2",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 194,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "col_spray",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 238,
+              "w": 720,
+              "h": 400
+            }
+          },
+          {
+            "item": "tbl_ssh",
+            "type": "block",
+            "position": {
+              "x": 720,
+              "y": 238,
+              "w": 720,
+              "h": 400
+            }
+          },
+          {
+            "item": "md_g3",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 638,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "tbl_http",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 682,
+              "w": 1440,
+              "h": 360
+            }
+          },
+          {
+            "item": "tbl_dns",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1042,
+              "w": 1440,
+              "h": 360
+            }
+          },
+          {
+            "item": "md_g4",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1402,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "tbl_ps",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1446,
+              "w": 1440,
+              "h": 300
+            }
+          },
+          {
+            "item": "tbl_bin",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1746,
+              "w": 1440,
+              "h": 300
+            }
+          },
+          {
+            "item": "tbl_run",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 2046,
+              "w": 1440,
+              "h": 300
+            }
+          },
+          {
+            "item": "md_g5",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 2346,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "tbl_7z",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 2390,
+              "w": 1440,
+              "h": 300
+            }
+          },
+          {
+            "item": "line_asa",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 2690,
+              "w": 1440,
+              "h": 380
+            }
+          }
+        ]
+      }
+    }
+  },
+  "expressions": {},
+  "applicationProperties": {
+    "hideExport": false,
+    "hideOpenInSearch": false,
+    "hideEdit": false,
+    "collapseNavigation": false
+  }
+}

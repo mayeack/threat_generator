@@ -120,7 +120,7 @@ window.HuntGuides = {
         detail:
           "linux_secure entries from the 'postgres' process that record pg_hba.conf rejections. A single source IP generating many rejects against multiple accounts is the Postgres half of the ORB spray.",
         spl:
-          'index=threat_gen sourcetype=linux_secure process=postgres "pg_hba.conf reject line"\n'
+          'index=threat_gen sourcetype=linux_secure "pg_hba.conf reject line"\n'
           + '| rex "host all (?<user>\\S+) (?<src>\\S+?)/"\n'
           + '| stats dc(user) as unique_users count by src\n'
           + '| where count > 5\n'
@@ -129,14 +129,14 @@ window.HuntGuides = {
       {
         title: "Edge-service reconnaissance on auth ports (T1595.002)",
         detail:
-          "cisco:asa permitted-connection logs. Extract src_ip / dest_ip / dest_port with rex and surface external sources that touch many internal hosts on SSH/Postgres/Tomcat.",
+          "cisco:asa denied / permitted inbound traffic. Extract src_ip / dest_ip / dest_port from the message field and surface external sources that touch many internal hosts on SSH / PostgreSQL / Tomcat.",
         spl:
-          'index=threat_gen sourcetype="cisco:asa" "Built"\n'
-          + '| rex field=message "inside:(?<inside_ip>\\S+?)/\\d+.*outside:(?<outside_ip>\\S+?)/(?<outside_port>\\d+)"\n'
-          + '| rex field=message "outside:(?<src_ip>\\S+?)/\\d+.*inside:(?<dest_ip>\\S+?)/(?<dest_port>\\d+)"\n'
+          'index=threat_gen sourcetype="cisco:asa" ("Deny tcp" OR "Built inbound")\n'
+          + '| rex field=message "outside:(?<src_ip>\\S+?)/\\d+.*(?:inside|dmz):(?<dest_ip>\\S+?)/(?<dest_port>\\d+)"\n'
           + '| where dest_port IN ("22","5432","8080","8443")\n'
           + '| stats dc(dest_ip) as targets, count by src_ip, dest_port\n'
-          + '| where targets > 3',
+          + '| where targets > 3\n'
+          + '| sort - count',
       },
     ],
     medium: [
@@ -169,14 +169,13 @@ window.HuntGuides = {
       {
         title: "BitTorrent-style peer traffic from servers (T1071.001)",
         detail:
-          "cisco:asa permitted connections on BitTorrent ports. Extract fields with rex and alert on any internal host reaching many distinct external peers in 6881-6889.",
+          "cisco:asa permitted connections on BitTorrent/DHT ports (6881, 6882, 6889, 6969, 51413). A Linux server that should not be a BT peer making any outbound sessions to these ports is worth triage.",
         spl:
           'index=threat_gen sourcetype="cisco:asa" "Built outbound"\n'
           + '| rex field=message "inside:(?<src_ip>\\S+?)/\\d+.*outside:(?<dest_ip>\\S+?)/(?<dest_port>\\d+)"\n'
           + '| eval port_num=tonumber(dest_port)\n'
-          + '| where port_num>=6881 AND port_num<=6889\n'
-          + '| stats dc(dest_ip) as peers, count by src_ip\n'
-          + '| where peers > 5',
+          + '| where port_num IN (6881,6882,6889,6969,51413)\n'
+          + '| stats count values(dest_ip) as peers values(dest_port) as ports by src_ip',
       },
       {
         title: "DNS to tracker / PeerTime C2 domains (T1071.004)",
