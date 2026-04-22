@@ -170,8 +170,27 @@ const TopologyEditor = {
 
   async save() {
     const topo = TopologyEditor.collectTopology();
-    await App.api('PUT', '/api/topology', { topology: topo });
-    TopologyEditor.topo = topo;
+    const btn = document.querySelector('button[onclick="TopologyEditor.save()"]');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/topology', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topology: topo }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = (body && body.detail) ? body.detail : `HTTP ${res.status}`;
+        App.toast(`Save failed: ${msg}`, 'err');
+        return;
+      }
+      TopologyEditor.topo = topo;
+      App.toast('Topology saved', 'ok');
+    } catch (_) {
+      App.toast('Save failed (network error)', 'err');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   },
 
   removeRow(key, idx) {

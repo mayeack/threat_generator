@@ -77,6 +77,59 @@ const App = {
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(path, opts);
     return res.json();
+  },
+
+  /**
+   * Show a transient toast notification in the top-right corner.
+   * Multiple toasts stack vertically and auto-dismiss.
+   *
+   * Security: `message` is rendered via textContent (never innerHTML) so
+   * server-returned error strings cannot inject markup into the page.
+   *
+   * @param {string} message - human-readable message to display
+   * @param {'ok'|'err'|'info'} [type='ok'] - visual variant
+   * @param {number} [durationMs=3200] - how long before auto-dismiss
+   */
+  toast(message, type = 'ok', durationMs = 3200) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.setAttribute('role', 'status');
+      container.setAttribute('aria-live', 'polite');
+      document.body.appendChild(container);
+    }
+
+    const el = document.createElement('div');
+    el.className = `toast toast-${type === 'err' ? 'err' : type === 'info' ? 'info' : 'ok'}`;
+
+    const icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = type === 'err' ? '!' : type === 'info' ? 'i' : '\u2713';
+
+    const text = document.createElement('span');
+    text.className = 'toast-text';
+    text.textContent = String(message == null ? '' : message);
+
+    el.appendChild(icon);
+    el.appendChild(text);
+    container.appendChild(el);
+
+    // Force a reflow so the enter animation applies reliably on
+    // back-to-back toasts.
+    void el.offsetWidth;
+    el.classList.add('toast-enter');
+
+    const dismiss = () => {
+      if (!el.isConnected) return;
+      el.classList.remove('toast-enter');
+      el.classList.add('toast-exit');
+      setTimeout(() => { if (el.isConnected) el.remove(); }, 220);
+    };
+
+    const timer = setTimeout(dismiss, Math.max(1200, durationMs));
+    el.addEventListener('click', () => { clearTimeout(timer); dismiss(); });
   }
 };
 

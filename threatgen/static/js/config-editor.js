@@ -117,6 +117,25 @@ const ConfigEditor = {
     });
     patch.sourcetypes = sourcetypes;
 
-    await App.api('PUT', '/api/config', patch);
+    const btn = document.querySelector('button[onclick="ConfigEditor.save()"]');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = (body && body.detail) ? body.detail : `HTTP ${res.status}`;
+        App.toast(`Save failed: ${msg}`, 'err');
+        return;
+      }
+      App.toast('Configuration saved', 'ok');
+    } catch (_) {
+      App.toast('Save failed (network error)', 'err');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   },
 };

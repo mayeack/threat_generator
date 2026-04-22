@@ -303,6 +303,7 @@ const Settings = {
           </div>
 
           <div class="settings-section-body" id="settings-hec-body">
+          <div id="hec-test-result" class="hec-test-result hec-test-result-top"></div>
           <div class="grid-2">
             <div class="card">
               <div class="card-title">Connection</div>
@@ -493,7 +494,6 @@ const Settings = {
             </table>
           </div>
 
-          <div id="hec-test-result" class="hec-test-result"></div>
           </div>
         </section>
       </div>
@@ -681,10 +681,19 @@ const Settings = {
       max_tokens_campaign: parseInt(document.getElementById('llm-tokens-campaign').value, 10),
     };
 
-    if (!patch.model) { Settings._showLLMResult(false, 'Variation model is required.'); return; }
-    if (!patch.campaign_model) { Settings._showLLMResult(false, 'Campaign model is required.'); return; }
+    if (!patch.model) {
+      Settings._showLLMResult(false, 'Variation model is required.');
+      App.toast('Variation model is required.', 'err');
+      return;
+    }
+    if (!patch.campaign_model) {
+      Settings._showLLMResult(false, 'Campaign model is required.');
+      App.toast('Campaign model is required.', 'err');
+      return;
+    }
     if (patch.low_water > patch.variation_pool_size) {
       Settings._showLLMResult(false, 'Low-water mark cannot exceed pool size.');
+      App.toast('Low-water mark cannot exceed pool size.', 'err');
       return;
     }
 
@@ -696,14 +705,18 @@ const Settings = {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        Settings._showLLMResult(false, `Save failed: ${Settings._describeError(body, res.status)}`);
+        const detail = Settings._describeError(body, res.status);
+        Settings._showLLMResult(false, `Save failed: ${detail}`);
+        App.toast(`AI settings save failed: ${detail}`, 'err');
         return;
       }
       Settings.llmConfig = await res.json();
       Settings._showLLMResult(true, 'AI settings saved. Worker reconfigured.');
+      App.toast('AI settings saved', 'ok');
       await Settings._refreshRuntime();
     } catch (e) {
       Settings._showLLMResult(false, 'Save failed (network error)');
+      App.toast('Save failed (network error)', 'err');
     }
   },
 
@@ -738,14 +751,13 @@ const Settings = {
     const key = raw.trim();
     if (!key) {
       Settings._renderResult('llm-key-result', false, 'API key is required.');
+      App.toast('API key is required.', 'err');
       return;
     }
     if (!/^sk-ant-[A-Za-z0-9_\-]{20,500}$/.test(key)) {
-      Settings._renderResult(
-        'llm-key-result',
-        false,
-        'Key does not look like an Anthropic key (expected sk-ant-...).'
-      );
+      const msg = 'Key does not look like an Anthropic key (expected sk-ant-...).';
+      Settings._renderResult('llm-key-result', false, msg);
+      App.toast(msg, 'err');
       return;
     }
 
@@ -759,25 +771,22 @@ const Settings = {
       input.value = '';
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        Settings._renderResult(
-          'llm-key-result',
-          false,
-          `Save failed: ${Settings._describeError(body, res.status)}`
-        );
+        const detail = Settings._describeError(body, res.status);
+        Settings._renderResult('llm-key-result', false, `Save failed: ${detail}`);
+        App.toast(`API key save failed: ${detail}`, 'err');
         return;
       }
       const info = await res.json();
-      Settings._renderResult(
-        'llm-key-result',
-        true,
-        info.source === 'keychain'
-          ? 'Key stored in OS keychain. Worker reconfigured.'
-          : 'Key saved. Worker reconfigured.'
-      );
+      const msg = info.source === 'keychain'
+        ? 'Key stored in OS keychain. Worker reconfigured.'
+        : 'Key saved. Worker reconfigured.';
+      Settings._renderResult('llm-key-result', true, msg);
+      App.toast('Anthropic API key saved', 'ok');
       await Settings._reloadLLMKeyUi();
     } catch (_) {
       input.value = '';
       Settings._renderResult('llm-key-result', false, 'Save failed (network error).');
+      App.toast('Save failed (network error)', 'err');
     }
   },
 
@@ -789,22 +798,19 @@ const Settings = {
       const res = await fetch('/api/llm/key', { method: 'DELETE' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        Settings._renderResult(
-          'llm-key-result',
-          false,
-          `Clear failed: ${Settings._describeError(body, res.status)}`
-        );
+        const detail = Settings._describeError(body, res.status);
+        Settings._renderResult('llm-key-result', false, `Clear failed: ${detail}`);
+        App.toast(`Clear failed: ${detail}`, 'err');
         return;
       }
       const info = await res.json();
-      Settings._renderResult(
-        'llm-key-result',
-        true,
-        info.removed ? 'Stored key cleared.' : 'No key was stored.'
-      );
+      const msg = info.removed ? 'Stored key cleared.' : 'No key was stored.';
+      Settings._renderResult('llm-key-result', true, msg);
+      App.toast(msg, 'ok');
       await Settings._reloadLLMKeyUi();
     } catch (_) {
       Settings._renderResult('llm-key-result', false, 'Clear failed (network error).');
+      App.toast('Clear failed (network error)', 'err');
     }
   },
 
@@ -864,15 +870,14 @@ const Settings = {
     const token = raw.trim();
     if (!token) {
       Settings._renderResult('hec-key-result', false, 'HEC token is required.');
+      App.toast('HEC token is required.', 'err');
       return;
     }
     // Client-side shape check mirrors server validation (UUID).
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(token)) {
-      Settings._renderResult(
-        'hec-key-result',
-        false,
-        'Token does not look like a Splunk HEC token (expected UUID: 8-4-4-4-12 hex).'
-      );
+      const msg = 'Token does not look like a Splunk HEC token (expected UUID: 8-4-4-4-12 hex).';
+      Settings._renderResult('hec-key-result', false, msg);
+      App.toast(msg, 'err');
       return;
     }
 
@@ -886,25 +891,22 @@ const Settings = {
       input.value = '';
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        Settings._renderResult(
-          'hec-key-result',
-          false,
-          `Save failed: ${Settings._describeError(body, res.status)}`
-        );
+        const detail = Settings._describeError(body, res.status);
+        Settings._renderResult('hec-key-result', false, `Save failed: ${detail}`);
+        App.toast(`HEC token save failed: ${detail}`, 'err');
         return;
       }
       const info = await res.json();
-      Settings._renderResult(
-        'hec-key-result',
-        true,
-        info.source === 'keychain'
-          ? 'Token stored in OS keychain. Forwarder reconfigured.'
-          : 'Token saved. Forwarder reconfigured.'
-      );
+      const msg = info.source === 'keychain'
+        ? 'Token stored in OS keychain. Forwarder reconfigured.'
+        : 'Token saved. Forwarder reconfigured.';
+      Settings._renderResult('hec-key-result', true, msg);
+      App.toast('HEC token saved', 'ok');
       await Settings._reloadHECKeyUi();
     } catch (_) {
       input.value = '';
       Settings._renderResult('hec-key-result', false, 'Save failed (network error).');
+      App.toast('Save failed (network error)', 'err');
     }
   },
 
@@ -916,22 +918,19 @@ const Settings = {
       const res = await fetch('/api/hec/key', { method: 'DELETE' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        Settings._renderResult(
-          'hec-key-result',
-          false,
-          `Clear failed: ${Settings._describeError(body, res.status)}`
-        );
+        const detail = Settings._describeError(body, res.status);
+        Settings._renderResult('hec-key-result', false, `Clear failed: ${detail}`);
+        App.toast(`Clear failed: ${detail}`, 'err');
         return;
       }
       const info = await res.json();
-      Settings._renderResult(
-        'hec-key-result',
-        true,
-        info.removed ? 'Stored token cleared.' : 'No token was stored.'
-      );
+      const msg = info.removed ? 'Stored token cleared.' : 'No token was stored.';
+      Settings._renderResult('hec-key-result', true, msg);
+      App.toast(msg, 'ok');
       await Settings._reloadHECKeyUi();
     } catch (_) {
       Settings._renderResult('hec-key-result', false, 'Clear failed (network error).');
+      App.toast('Clear failed (network error)', 'err');
     }
   },
 
@@ -987,6 +986,7 @@ const Settings = {
     const url = (urlEl.value || '').trim();
     if (url && !/^https:\/\//i.test(url)) {
       Settings._showHECResult(false, 'URL must start with https://');
+      App.toast('URL must start with https://', 'err');
       return;
     }
 
@@ -1013,14 +1013,18 @@ const Settings = {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        Settings._showHECResult(false, `Save failed: ${Settings._describeError(body, res.status)}`);
+        const detail = Settings._describeError(body, res.status);
+        Settings._showHECResult(false, `Save failed: ${detail}`);
+        App.toast(`HEC save failed: ${detail}`, 'err');
         return;
       }
       Settings.hecConfig = await res.json();
       Settings._showHECResult(true, 'HEC configuration saved and forwarder reloaded.');
+      App.toast('HEC settings saved', 'ok');
       await Settings._refreshRuntime();
     } catch (e) {
       Settings._showHECResult(false, 'Save failed (network error)');
+      App.toast('Save failed (network error)', 'err');
     }
   },
 
