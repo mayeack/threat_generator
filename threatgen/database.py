@@ -49,6 +49,60 @@ async def init_db() -> None:
     if not row:
         await _seed_default()
 
+    await _migrate_sourcetype_keys()
+
+
+# Historical internal sourcetype keys that must be renamed in stored
+# configs to match the generator/cache keys the engine uses today.
+# Migrations are idempotent: running twice is a no-op.
+_SOURCETYPE_KEY_RENAMES: dict[str, str] = {
+    "firewall": "cisco:asa",
+}
+
+
+async def _migrate_sourcetype_keys() -> None:
+    """Rename legacy sourcetype keys inside every persisted config.
+
+    Runs on every startup; each rename is idempotent because we only
+    rewrite rows whose JSON actually changes. This keeps existing DBs
+    usable after an internal-key rename without requiring users to
+    delete threatgen.db.
+    """
+    assert _db is not None
+    rows = await _db.execute_fetchall("SELECT id, data FROM configs")
+    for row in rows:
+        try:
+            cfg = json.loads(row["data"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(cfg, dict):
+            continue
+
+        changed = False
+
+        st = cfg.get("sourcetypes")
+        if isinstance(st, dict):
+            for old_key, new_key in _SOURCETYPE_KEY_RENAMES.items():
+                if old_key in st and new_key not in st:
+                    st[new_key] = st.pop(old_key)
+                    changed = True
+
+        hec = cfg.get("hec")
+        if isinstance(hec, dict):
+            stm = hec.get("sourcetype_map")
+            if isinstance(stm, dict):
+                for old_key, new_key in _SOURCETYPE_KEY_RENAMES.items():
+                    if old_key in stm and new_key not in stm:
+                        stm[new_key] = stm.pop(old_key)
+                        changed = True
+
+        if changed:
+            await _db.execute(
+                "UPDATE configs SET data = ? WHERE id = ?",
+                (json.dumps(cfg), row["id"]),
+            )
+    await _db.commit()
+
 
 async def _seed_default() -> None:
     assert _db is not None

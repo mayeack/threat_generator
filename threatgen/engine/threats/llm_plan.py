@@ -33,7 +33,7 @@ class LLMPlanCampaign(BaseCampaign):
         "linux_secure": LinuxSecureGenerator,
         "dns": DNSGenerator,
         "http": HTTPGenerator,
-        "firewall": FirewallGenerator,
+        "cisco:asa": FirewallGenerator,
     }
 
     def __init__(self, topology: Topology, plan: dict[str, Any], iocs: dict[str, Any]) -> None:

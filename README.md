@@ -25,15 +25,15 @@ Nine campaigns cycle through phases on each trigger, producing correlated events
 
 | Campaign | Phases | Sourcetypes Affected | Techniques | MITRE IDs |
 |---|---|---|---|---|
-| **TernDoor** | 5 | sysmon, wineventlog, dns, firewall | DLL side-loading, persistence, driver install, C2 beacon | T1574.002, T1055, T1547.001, T1053.005, T1014, T1543.003, T1071.001 |
-| **BruteEntry** | 3 | linux_secure, firewall, dns, http | SSH/Tomcat/Postgres brute-force from ORB IPs | T1110.001, T1110.003, T1595.002 |
-| **PeerTime** | 4 | dns, http, linux_secure, firewall | ELF backdoor, BitTorrent P2P C2, Docker/BusyBox abuse | T1071.001, T1059.004, T1036.004, T1610 |
-| **CobaltStrike** | 4 | sysmon, dns, firewall, wineventlog | PowerShell cradle, process hollowing, WinRM lateral movement, named pipe C2 | T1059.001, T1071.001, T1055.012, T1021.006, T1105 |
-| **DarkGate** | 4 | sysmon, wineventlog, firewall | MSI loader, AutoIt execution, credential harvest, C2 exfiltration | T1566.001, T1218.007, T1059.010, T1555.003, T1041 |
-| **CryptoJack** | 4 | linux_secure, http, firewall, dns | XMRig cryptominer, cron persistence, Stratum pool connections | T1496, T1059.004, T1053.003, T1105 |
-| **RansomSim** | 4 | sysmon, wineventlog, firewall | Shadow copy deletion, service stop, file encryption, ransom note | T1486, T1490, T1489, T1059.001, T1547.001 |
-| **PhishKit** | 4 | dns, http, firewall | AitM credential phishing proxy, OAuth token theft, mailbox access | T1566.002, T1557, T1539, T1114.002, T1078 |
-| **SnakeByte** | 4 | sysmon, wineventlog, dns, firewall | SMB collection, 7-Zip staging, DNS tunnel exfil, HTTPS bulk transfer | T1048.001, T1071.004, T1132.001, T1560.001, T1005 |
+| **TernDoor** | 5 | sysmon, wineventlog, dns, cisco:asa | DLL side-loading, persistence, driver install, C2 beacon | T1574.002, T1055, T1547.001, T1053.005, T1014, T1543.003, T1071.001 |
+| **BruteEntry** | 3 | linux_secure, cisco:asa, dns, http | SSH/Tomcat/Postgres brute-force from ORB IPs | T1110.001, T1110.003, T1595.002 |
+| **PeerTime** | 4 | dns, http, linux_secure, cisco:asa | ELF backdoor, BitTorrent P2P C2, Docker/BusyBox abuse | T1071.001, T1059.004, T1036.004, T1610 |
+| **CobaltStrike** | 4 | sysmon, dns, cisco:asa, wineventlog | PowerShell cradle, process hollowing, WinRM lateral movement, named pipe C2 | T1059.001, T1071.001, T1055.012, T1021.006, T1105 |
+| **DarkGate** | 4 | sysmon, wineventlog, cisco:asa | MSI loader, AutoIt execution, credential harvest, C2 exfiltration | T1566.001, T1218.007, T1059.010, T1555.003, T1041 |
+| **CryptoJack** | 4 | linux_secure, http, cisco:asa, dns | XMRig cryptominer, cron persistence, Stratum pool connections | T1496, T1059.004, T1053.003, T1105 |
+| **RansomSim** | 4 | sysmon, wineventlog, cisco:asa | Shadow copy deletion, service stop, file encryption, ransom note | T1486, T1490, T1489, T1059.001, T1547.001 |
+| **PhishKit** | 4 | dns, http, cisco:asa | AitM credential phishing proxy, OAuth token theft, mailbox access | T1566.002, T1557, T1539, T1114.002, T1078 |
+| **SnakeByte** | 4 | sysmon, wineventlog, dns, cisco:asa | SMB collection, 7-Zip staging, DNS tunnel exfil, HTTPS bulk transfer | T1048.001, T1071.004, T1132.001, T1560.001, T1005 |
 
 TernDoor, BruteEntry, and PeerTime use IOC data (IPs, domains, hashes) sourced from the UAT-9244 Talos report. The remaining campaigns use realistic IOCs modeled after their respective malware families.
 
@@ -259,7 +259,7 @@ Token resolution order is **env var (`SPLUNK_HEC_TOKEN`) → OS keychain → dis
 
 | Path | Description |
 |---|---|
-| `/ws/logs/{sourcetype}` | Live log stream for a sourcetype (`wineventlog`, `sysmon`, `linux_secure`, `dns`, `http`, `firewall`, or `all`) |
+| `/ws/logs/{sourcetype}` | Live log stream for a sourcetype (`wineventlog`, `sysmon`, `linux_secure`, `dns`, `http`, `cisco:asa`, or `all`) |
 
 Messages arrive as `{sourcetype}|{log_line}`. The frontend reconnects automatically with a 3-second backoff.
 
@@ -309,7 +309,7 @@ All settings are editable through the web UI (Configuration and Settings pages) 
 | `default_index` | `main` | Fallback index applied to events without an explicit index. |
 | `default_source` | `threatgen` | Fallback `source` field. |
 | `default_host` | `threatgen` | Fallback `host` field. |
-| `sourcetype_map` | `{}` | Override mapping from internal sourcetype keys (`wineventlog`, `sysmon`, `linux_secure`, `dns`, `http`, `firewall`) to Splunk sourcetypes. |
+| `sourcetype_map` | `{}` | Override mapping from internal sourcetype keys (`wineventlog`, `sysmon`, `linux_secure`, `dns`, `http`, `cisco:asa`) to Splunk sourcetypes. |
 | `batch_size` | `100` | Events per HEC batch. |
 | `flush_interval_s` | `2.0` | Max time to hold events before flushing a partial batch. |
 | `queue_max` | `10000` | Bounded queue capacity. Overflow drops the oldest events. |

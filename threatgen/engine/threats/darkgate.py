@@ -236,4 +236,4 @@ class DarkGateCampaign(BaseCampaign):
             ),
         )
 
-        return {"sysmon": [sysmon_line], "firewall": [asa_line]}
+        return {"sysmon": [sysmon_line], "cisco:asa": [asa_line]}

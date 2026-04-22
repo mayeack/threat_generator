@@ -31,7 +31,7 @@ ACL_NAMES = ["outside_access_in", "dmz_access_in", "inside_access_out"]
 
 
 class FirewallGenerator(BaseGenerator):
-    sourcetype = "firewall"
+    sourcetype = "cisco:asa"
 
     def __init__(self, topology: Topology, cache: Optional[VariationCache] = None) -> None:
         super().__init__(topology, cache)

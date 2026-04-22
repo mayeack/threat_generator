@@ -60,7 +60,7 @@ A pull request that alters the campaign catalog without updating
    - `http` -> `stream:http` (`src_ip`, `dest_ip`, `site`, `uri_path`,
      `http_method`, `http_user_agent`, `http_content_type`, `bytes_out`
      are directly queryable).
-   - `firewall` -> `cisco:asa` (no auto-extractions; use `rex` on the
+   - `cisco:asa` -> `cisco:asa` (no auto-extractions; use `rex` on the
      `message` field to pull `src_ip`, `dest_ip`, and `dest_port` out
      of `inside:<ip>/<port> ... outside:<ip>/<port>` segments).
    Every easy-tier query should be runnable against a live Splunk and

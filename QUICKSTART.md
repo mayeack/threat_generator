@@ -261,21 +261,21 @@ sudo /opt/splunkforwarder/bin/splunk restart
 | `linux_secure` | `logs/linux_secure.log` | Single-line JSON | 1 |
 | `dns` | `logs/stream_dns.log` | Single-line JSON | 1 |
 | `http` | `logs/stream_http.log` | Single-line JSON | 1 |
-| `firewall` | `logs/cisco_asa.log` | Single-line JSON | 1 |
+| `cisco:asa` | `logs/cisco_asa.log` | Single-line JSON | 1 |
 
 ### Embedded Threat Campaigns
 
 | Campaign | Class | Phases | Sourcetypes Affected |
 |---|---|---|---|
-| TernDoor | `TernDoorCampaign` | 5 | sysmon, wineventlog, dns, firewall |
-| BruteEntry | `BruteEntryCampaign` | 3 | linux_secure, firewall, dns, http |
-| PeerTime | `PeerTimeCampaign` | 4 | dns, http, linux_secure, firewall |
-| CobaltStrike | `CobaltStrikeCampaign` | 4 | sysmon, dns, firewall, wineventlog |
-| DarkGate | `DarkGateCampaign` | 4 | sysmon, wineventlog, firewall |
-| CryptoJack | `CryptoJackCampaign` | 4 | linux_secure, http, firewall, dns |
-| RansomSim | `RansomSimCampaign` | 4 | sysmon, wineventlog, firewall |
-| PhishKit | `PhishKitCampaign` | 4 | dns, http, firewall |
-| SnakeByte | `SnakeByteCampaign` | 4 | sysmon, wineventlog, dns, firewall |
+| TernDoor | `TernDoorCampaign` | 5 | sysmon, wineventlog, dns, cisco:asa |
+| BruteEntry | `BruteEntryCampaign` | 3 | linux_secure, cisco:asa, dns, http |
+| PeerTime | `PeerTimeCampaign` | 4 | dns, http, linux_secure, cisco:asa |
+| CobaltStrike | `CobaltStrikeCampaign` | 4 | sysmon, dns, cisco:asa, wineventlog |
+| DarkGate | `DarkGateCampaign` | 4 | sysmon, wineventlog, cisco:asa |
+| CryptoJack | `CryptoJackCampaign` | 4 | linux_secure, http, cisco:asa, dns |
+| RansomSim | `RansomSimCampaign` | 4 | sysmon, wineventlog, cisco:asa |
+| PhishKit | `PhishKitCampaign` | 4 | dns, http, cisco:asa |
+| SnakeByte | `SnakeByteCampaign` | 4 | sysmon, wineventlog, dns, cisco:asa |
 
 ## Common Tasks
 

@@ -75,7 +75,7 @@ const Dashboard = {
       Dashboard.stChart = new Chart(stCtx, {
         type: 'bar',
         data: {
-          labels: ['WinEventLog', 'Sysmon', 'linux_secure', 'DNS', 'HTTP', 'Firewall'],
+          labels: ['WinEventLog', 'Sysmon', 'linux_secure', 'DNS', 'HTTP', 'Cisco ASA'],
           datasets: [{
             label: 'Events',
             data: [0, 0, 0, 0, 0, 0],
@@ -156,7 +156,7 @@ const Dashboard = {
     if (threatEl) threatEl.textContent = data.threat_events.toLocaleString();
 
     if (Dashboard.stChart) {
-      const keys = ['wineventlog', 'sysmon', 'linux_secure', 'dns', 'http', 'firewall'];
+      const keys = ['wineventlog', 'sysmon', 'linux_secure', 'dns', 'http', 'cisco:asa'];
       Dashboard.stChart.data.datasets[0].data = keys.map(k => data.events_by_sourcetype[k] || 0);
       Dashboard.stChart.update('none');
     }

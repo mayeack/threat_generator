@@ -171,7 +171,7 @@ SOURCETYPE_SCHEMAS: dict[str, dict[str, Any]] = {
     "linux_secure": LINUX_SECURE_SCENARIO_SCHEMA,
     "dns": DNS_SCENARIO_SCHEMA,
     "http": HTTP_SCENARIO_SCHEMA,
-    "firewall": FIREWALL_SCENARIO_SCHEMA,
+    "cisco:asa": FIREWALL_SCENARIO_SCHEMA,
 }
 
 
@@ -205,7 +205,7 @@ CAMPAIGN_PLAN_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "sourcetype": {
                         "type": "string",
-                        "enum": ["wineventlog", "sysmon", "linux_secure", "dns", "http", "firewall"],
+                        "enum": ["wineventlog", "sysmon", "linux_secure", "dns", "http", "cisco:asa"],
                     },
                     "scenario": {"type": "object"},
                     "use_victim_host": {"type": "boolean"},

@@ -49,7 +49,7 @@ def _lazy_import_generators():
         "linux_secure": LinuxSecureGenerator,
         "dns": DNSGenerator,
         "http": HTTPGenerator,
-        "firewall": FirewallGenerator,
+        "cisco:asa": FirewallGenerator,
     }
     return _PREVIEW_GENERATOR_CLASSES
 
@@ -316,7 +316,7 @@ async def refresh_llm_cache() -> dict:
 
 @router.get("/preview")
 async def preview_cached_lines(
-    sourcetype: str = Query(..., description="one of: wineventlog, sysmon, linux_secure, dns, http, firewall"),
+    sourcetype: str = Query(..., description="one of: wineventlog, sysmon, linux_secure, dns, http, cisco:asa"),
     n: int = Query(3, ge=1, le=10),
 ) -> dict:
     if sourcetype not in SOURCETYPES:

@@ -8,7 +8,7 @@
 //              linux_secure-> linux_secure
 //              dns         -> stream:dns
 //              http        -> stream:http
-//              firewall    -> cisco:asa
+//              cisco:asa   -> cisco:asa
 //            Sysmon fields are nested under EventData.* and must be quoted.
 //            WinEventLog:Security lacks discrete extractions; search the
 //            Message field or use rex. cisco:asa requires rex to extract

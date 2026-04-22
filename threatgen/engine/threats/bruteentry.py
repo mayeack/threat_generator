@@ -85,7 +85,7 @@ class BruteEntryCampaign(BaseCampaign):
         }
         dns_line = self.json_fmt.format(ts, data=dns_data)
 
-        return {"linux_secure": linux_lines, "firewall": [asa_line], "dns": [dns_line]}
+        return {"linux_secure": linux_lines, "cisco:asa": [asa_line], "dns": [dns_line]}
 
     def _tomcat_brute(self, ts, orb_ip):
         dmz = self.topo.random_dmz_server("tomcat")
@@ -131,7 +131,7 @@ class BruteEntryCampaign(BaseCampaign):
             ),
         )
 
-        return {"http": http_lines, "firewall": [asa_line]}
+        return {"http": http_lines, "cisco:asa": [asa_line]}
 
     def _postgres_brute(self, ts, orb_ip):
         target = self.topo.random_linux_host()
@@ -152,4 +152,4 @@ class BruteEntryCampaign(BaseCampaign):
             msg = f"Connection matched pg_hba.conf reject line: host all {user} {orb_ip}/32 reject"
             linux_lines.append(self.syslog_fmt.format(ts, hostname=target.hostname, process="postgres", pid=pid, message=msg))
 
-        return {"firewall": asa_lines, "linux_secure": linux_lines}
+        return {"cisco:asa": asa_lines, "linux_secure": linux_lines}

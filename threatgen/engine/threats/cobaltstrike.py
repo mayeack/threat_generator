@@ -129,7 +129,7 @@ class CobaltStrikeCampaign(BaseCampaign):
             ),
         )
 
-        return {"sysmon": sysmon_lines, "dns": [dns_line], "firewall": [asa_line]}
+        return {"sysmon": sysmon_lines, "dns": [dns_line], "cisco:asa": [asa_line]}
 
     def _beacon_install(self, ts, host, computer):
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
@@ -305,4 +305,4 @@ class CobaltStrikeCampaign(BaseCampaign):
             ),
         )
 
-        return {"sysmon": [sysmon_line], "dns": [dns_line], "firewall": [asa_line]}
+        return {"sysmon": [sysmon_line], "dns": [dns_line], "cisco:asa": [asa_line]}

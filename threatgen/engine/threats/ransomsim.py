@@ -242,4 +242,4 @@ class RansomSimCampaign(BaseCampaign):
             ),
         )
 
-        return {"sysmon": sysmon_lines, "firewall": [asa_line]}
+        return {"sysmon": sysmon_lines, "cisco:asa": [asa_line]}

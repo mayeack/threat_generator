@@ -160,7 +160,7 @@ SOURCETYPE_PROMPTS: dict[str, str] = {
     "linux_secure": _LINUX_SECURE_PROMPT,
     "dns": _DNS_PROMPT,
     "http": _HTTP_PROMPT,
-    "firewall": _FIREWALL_PROMPT,
+    "cisco:asa": _FIREWALL_PROMPT,
 }
 
 
@@ -183,7 +183,7 @@ to look like the campaign in enterprise telemetry.
 Rules:
 - STRICT JSON only. No prose, no markdown.
 - Each step must include sourcetype (wineventlog|sysmon|linux_secure|dns|
-  http|firewall) and scenario (matching that sourcetype's field rules -
+  http|cisco:asa) and scenario (matching that sourcetype's field rules -
   same rules as the baseline scenario prompts).
 - For any step that should reference the campaign's C2 infrastructure, set
   use_c2_ip=true or use_c2_domain=true; downstream code will substitute

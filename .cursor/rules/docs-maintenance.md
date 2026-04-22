@@ -27,7 +27,7 @@ does not update the docs is incomplete.
 4. **Install path is `/Applications/ThreatGenerator`.** Never `/Applications/ThreatGen`.
 5. **Server URL is `http://127.0.0.1:8899`.** Use this everywhere in docs.
 6. **Use the internal sourcetype keys consistently:** `wineventlog`, `sysmon`,
-   `linux_secure`, `dns`, `http`, `firewall`.
+   `linux_secure`, `dns`, `http`, `cisco:asa`.
 
 ## What triggers a documentation update
 

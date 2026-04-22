@@ -34,7 +34,7 @@ GENERATOR_CLASSES: dict[str, type[BaseGenerator]] = {
     "linux_secure": LinuxSecureGenerator,
     "dns": DNSGenerator,
     "http": HTTPGenerator,
-    "firewall": FirewallGenerator,
+    "cisco:asa": FirewallGenerator,
 }
 
 MULTILINE_SOURCETYPES: set[str] = set()

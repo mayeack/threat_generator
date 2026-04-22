@@ -62,7 +62,7 @@ sourcetypes:
   http:
     weight: 10
     file: stream_http.log
-  firewall:
+  "cisco:asa":
     weight: 20
     file: cisco_asa.log
 

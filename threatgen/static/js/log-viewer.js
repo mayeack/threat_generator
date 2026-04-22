@@ -3,14 +3,14 @@ const LogViewer = {
   activeTab: 'wineventlog',
   maxLines: 500,
   autoScroll: true,
-  sourcetypes: ['wineventlog', 'sysmon', 'linux_secure', 'dns', 'http', 'firewall'],
+  sourcetypes: ['wineventlog', 'sysmon', 'linux_secure', 'dns', 'http', 'cisco:asa'],
   labels: {
     wineventlog: 'WinEventLog',
     sysmon: 'Sysmon',
     linux_secure: 'linux_secure',
     dns: 'DNS (stream)',
     http: 'HTTP (stream)',
-    firewall: 'Cisco ASA',
+    'cisco:asa': 'Cisco ASA',
   },
   threatPatterns: [
     /WSPrint/i, /BugSplatRc64/i, /msiexec.*\/V/i,
@@ -83,7 +83,7 @@ const LogViewer = {
 
   connectWS(st) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/logs/${st}`);
+    const ws = new WebSocket(`${proto}://${location.host}/ws/logs/${encodeURIComponent(st)}`);
     LogViewer.sockets[st] = ws;
 
     ws.onmessage = (evt) => {

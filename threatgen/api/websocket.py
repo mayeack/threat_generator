@@ -6,7 +6,7 @@ from threatgen.websocket_manager import ws_manager
 
 router = APIRouter()
 
-VALID_SOURCETYPES = {"wineventlog", "sysmon", "linux_secure", "dns", "http", "firewall", "all"}
+VALID_SOURCETYPES = {"wineventlog", "sysmon", "linux_secure", "dns", "http", "cisco:asa", "all"}
 
 
 @router.websocket("/ws/logs/{sourcetype}")
