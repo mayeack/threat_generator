@@ -1,5 +1,6 @@
 const Dashboard = {
   pollInterval: null,
+  llmInterval: null,
   epsChart: null,
   stChart: null,
 
@@ -10,9 +11,16 @@ const Dashboard = {
         <div class="page-header">
           <h1 class="page-title">Dashboard</h1>
           <div class="btn-group">
+            <span class="llm-pill" id="llm-pill" title="LLM variation engine status">
+              <span class="llm-dot"></span>
+              <span class="llm-label">LLM: checking</span>
+            </span>
+            <span class="llm-pill active-pill llm-fallback" id="active-pill" title="Generator engine status">
+              <span class="llm-dot"></span>
+              <span class="llm-label">Inactive</span>
+            </span>
             <button class="btn btn-success" id="btn-start" onclick="Dashboard.start()">Start</button>
             <button class="btn btn-danger" id="btn-stop" onclick="Dashboard.stop()">Stop</button>
-            <button class="btn" id="btn-pause" onclick="Dashboard.pause()">Pause</button>
           </div>
         </div>
         <div class="grid-4">
@@ -51,10 +59,12 @@ const Dashboard = {
     `;
     Dashboard.initCharts();
     Dashboard.startPolling();
+    Dashboard.startLLMPolling();
   },
 
   cleanup() {
     if (Dashboard.pollInterval) clearInterval(Dashboard.pollInterval);
+    if (Dashboard.llmInterval) clearInterval(Dashboard.llmInterval);
     if (Dashboard.epsChart) { Dashboard.epsChart.destroy(); Dashboard.epsChart = null; }
     if (Dashboard.stChart) { Dashboard.stChart.destroy(); Dashboard.stChart = null; }
   },
@@ -163,9 +173,77 @@ const Dashboard = {
     }
 
     App.updateStatusIndicator(data.state);
+    Dashboard.updateActivePill(data.state);
+  },
+
+  updateActivePill(state) {
+    const pill = document.getElementById('active-pill');
+    const startBtn = document.getElementById('btn-start');
+    const stopBtn = document.getElementById('btn-stop');
+    const isActive = state === 'running';
+    if (pill) {
+      const label = pill.querySelector('.llm-label');
+      pill.classList.remove('llm-active', 'llm-fallback');
+      if (isActive) {
+        pill.classList.add('llm-active');
+        if (label) label.textContent = 'Active';
+      } else {
+        pill.classList.add('llm-fallback');
+        if (label) label.textContent = 'Inactive';
+      }
+    }
+    if (startBtn) startBtn.disabled = isActive;
+    if (stopBtn) stopBtn.disabled = !isActive;
   },
 
   async start() { await App.api('POST', '/api/generator/start'); },
   async stop() { await App.api('POST', '/api/generator/stop'); },
-  async pause() { await App.api('POST', '/api/generator/pause'); },
+
+  startLLMPolling() {
+    const poll = async () => {
+      try {
+        const data = await App.api('GET', '/api/llm/status');
+        Dashboard.updateLLMPill(data);
+      } catch (_) {
+        Dashboard.updateLLMPill(null);
+      }
+    };
+    poll();
+    Dashboard.llmInterval = setInterval(poll, 5000);
+  },
+
+  updateLLMPill(status) {
+    const pill = document.getElementById('llm-pill');
+    if (!pill) return;
+    const label = pill.querySelector('.llm-label');
+
+    pill.classList.remove('llm-active', 'llm-degraded', 'llm-fallback');
+    if (!status) {
+      pill.classList.add('llm-fallback');
+      label.textContent = 'LLM: unknown';
+      pill.title = 'Could not query /api/llm/status';
+      return;
+    }
+    const pools = status.pool_sizes || {};
+    const totalPool = Object.values(pools).reduce((a, b) => a + (b || 0), 0);
+    const totalCapacity = (status.capacity || 0) * Object.keys(pools).length;
+
+    if (!status.key_present) {
+      pill.classList.add('llm-fallback');
+      label.textContent = 'LLM: fallback (no API key)';
+      pill.title = 'Set ANTHROPIC_API_KEY and restart to enable LLM variations.';
+    } else if (!status.enabled || !status.worker_running) {
+      pill.classList.add('llm-fallback');
+      label.textContent = 'LLM: disabled';
+      pill.title = status.last_error || 'Worker not running; using pattern fallback.';
+    } else if (status.degraded) {
+      pill.classList.add('llm-degraded');
+      label.textContent = `LLM: degraded (${totalPool}/${totalCapacity})`;
+      pill.title = status.last_error || 'Last refresh failed; using existing cache + fallback.';
+    } else {
+      pill.classList.add('llm-active');
+      label.textContent = `LLM: active (${totalPool}/${totalCapacity})`;
+      pill.title = `Model: ${status.model || 'n/a'}\nCampaign model: ${status.campaign_model || 'n/a'}`;
+    }
+  },
 };

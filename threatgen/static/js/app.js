@@ -15,6 +15,13 @@ const App = {
   },
 
   navigate(page) {
+    const prev = App.currentPage;
+    if (prev !== page) {
+      try {
+        const prevModule = App._pageModule(prev);
+        if (prevModule && typeof prevModule.cleanup === 'function') prevModule.cleanup();
+      } catch (_) {}
+    }
     App.currentPage = page;
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
     const active = document.querySelector(`.nav-link[data-page="${page}"]`);
@@ -28,6 +35,19 @@ const App = {
       case 'config': ConfigEditor.render(content); break;
       case 'topology': TopologyEditor.render(content); break;
       case 'campaigns': Campaigns.render(content); break;
+      case 'settings': Settings.render(content); break;
+    }
+  },
+
+  _pageModule(page) {
+    switch (page) {
+      case 'dashboard': return typeof Dashboard !== 'undefined' ? Dashboard : null;
+      case 'logs': return typeof LogViewer !== 'undefined' ? LogViewer : null;
+      case 'config': return typeof ConfigEditor !== 'undefined' ? ConfigEditor : null;
+      case 'topology': return typeof TopologyEditor !== 'undefined' ? TopologyEditor : null;
+      case 'campaigns': return typeof Campaigns !== 'undefined' ? Campaigns : null;
+      case 'settings': return typeof Settings !== 'undefined' ? Settings : null;
+      default: return null;
     }
   },
 

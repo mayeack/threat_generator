@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Optional
+
+from threatgen.engine.llm.cache import VariationCache
 
 from ..formatters.json_fmt import JSONFormatter
 from ..topology import Topology
@@ -43,29 +46,64 @@ CONTENT_TYPES = ["text/html", "application/json", "text/css", "application/javas
 
 
 class HTTPGenerator(BaseGenerator):
-    def __init__(self, topology: Topology) -> None:
-        super().__init__(topology)
+    sourcetype = "http"
+
+    def __init__(self, topology: Topology, cache: Optional[VariationCache] = None) -> None:
+        super().__init__(topology, cache)
         self.fmt = JSONFormatter()
 
-    def generate(self, ts: datetime) -> list[str]:
+    def _generate_pattern(self, ts: datetime) -> list[str]:
         is_internal = self.rng.random() < 0.60
         method = self.rng.choices(METHODS, weights=METHOD_WEIGHTS, k=1)[0]
         status = self.rng.choices(STATUS_CODES, weights=STATUS_WEIGHTS, k=1)[0]
-
+        path = self.rng.choice(INTERNAL_PATHS if is_internal else EXTERNAL_PATHS)
         if is_internal:
             dmz = self.topo.random_dmz_server()
-            dest_ip = dmz.ip
-            dest_port = self.rng.choice(dmz.ports) if dmz.ports else 443
             site = self.topo.fqdn(dmz.hostname)
-            path = self.rng.choice(INTERNAL_PATHS)
         else:
-            dest_ip = self.topo.random_external_ip()
-            dest_port = self.rng.choice([80, 443])
             site = self.rng.choice([
                 "www.google.com", "login.microsoftonline.com",
                 "outlook.office365.com", "api.github.com", "cdn.cloudflare.com",
             ])
-            path = self.rng.choice(EXTERNAL_PATHS)
+        return self._render(ts, method, status, path, site, is_internal, None, None, None)
+
+    def render_from_scenario(self, scenario: dict[str, Any], ts: datetime) -> list[str]:
+        method = str(scenario.get("method") or "GET").upper()
+        if method not in METHODS + ["PATCH"]:
+            method = "GET"
+        try:
+            status = int(scenario.get("status") or 200)
+        except (TypeError, ValueError):
+            status = 200
+        if not 100 <= status <= 599:
+            status = 200
+        path = str(scenario.get("uri_path") or "/")[:512]
+        site = str(scenario.get("site") or "www.example.com")[:253]
+        is_internal = bool(scenario.get("is_internal", False))
+        ua = scenario.get("user_agent")
+        ct = scenario.get("content_type")
+        srv = scenario.get("server")
+        return self._render(ts, method, status, path, site, is_internal, ua, ct, srv)
+
+    def _render(
+        self,
+        ts: datetime,
+        method: str,
+        status: int,
+        path: str,
+        site: str,
+        is_internal: bool,
+        user_agent: Optional[str],
+        content_type: Optional[str],
+        server: Optional[str],
+    ) -> list[str]:
+        if is_internal:
+            dmz = self.topo.random_dmz_server()
+            dest_ip = dmz.ip
+            dest_port = self.rng.choice(dmz.ports) if dmz.ports else 443
+        else:
+            dest_ip = self.topo.random_external_ip()
+            dest_port = self.rng.choice([80, 443])
 
         host = self.topo.random_windows_host() if self.rng.random() < 0.7 else None
         src_ip = host.ip if host else self.topo.random_linux_host().ip
@@ -89,10 +127,10 @@ class HTTPGenerator(BaseGenerator):
             "status": status,
             "uri_path": path,
             "site": site,
-            "http_user_agent": self.rng.choice(USER_AGENTS),
-            "http_content_type": self.rng.choice(CONTENT_TYPES),
+            "http_user_agent": (user_agent or self.rng.choice(USER_AGENTS))[:512],
+            "http_content_type": (content_type or self.rng.choice(CONTENT_TYPES))[:128],
             "http_comment": f"HTTP/1.1 {status} {STATUS_TEXT.get(status, 'OK')}",
-            "server": self.rng.choice(SERVERS),
+            "server": (server or self.rng.choice(SERVERS))[:128],
             "protocol_stack": "ip:tcp:http",
         }
 

@@ -17,6 +17,8 @@ Defined in `requirements.txt`:
 | `uvicorn[standard]` | 0.34.0 | ASGI server with WebSocket support |
 | `aiosqlite` | 0.20.0 | Async SQLite driver for configuration persistence |
 | `pyyaml` | 6.0 | YAML parsing for `default_config.yaml` |
+| `anthropic` | 0.96.0 | Claude SDK for LLM-backed log variation and campaign narratives |
+| `jsonschema` | 4.25.0 | Validates LLM JSON responses before they reach generators |
 
 ## 1. Set Up
 
@@ -26,6 +28,32 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+### (Optional) Enable Claude-backed log variety
+
+ThreatGen can call Anthropic Claude to populate a background pool of
+scenario variations so that generated logs are not repetitive. This is
+**optional**: if the API key is not set, the engine keeps running and
+every sourcetype quietly falls back to the built-in pattern generators.
+
+Set the key **via environment variable only**. The key is never persisted
+to `threatgen.db`, `default_config.yaml`, or anywhere else on disk:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+python3 run.py
+```
+
+The Dashboard shows an **LLM** pill with three states:
+
+| Pill | Meaning |
+|---|---|
+| `LLM: active (N/cap)` | Worker is online and the scenario cache is healthy. |
+| `LLM: degraded (...)` | Last refresh failed (rate limit, timeout, invalid JSON). Existing cache is still served; generators fall back when a pool is empty. |
+| `LLM: fallback` | No API key, worker disabled, or LLM explicitly off. 100% pattern-based output. |
+
+Click **Regenerate LLM Pool** to force the worker to top up scenarios
+immediately (subject to the configured concurrency / retry limits).
 
 ## 2. Start the Server
 

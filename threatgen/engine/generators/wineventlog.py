@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Optional
+
+from threatgen.engine.llm.cache import VariationCache
 
 from ..formatters.wineventlog_fmt import WinEventLogFormatter
 from ..topology import Topology
@@ -44,8 +47,10 @@ AUTH_PACKAGES = ["Negotiate", "Kerberos", "NTLM"]
 
 
 class WinEventLogGenerator(BaseGenerator):
-    def __init__(self, topology: Topology) -> None:
-        super().__init__(topology)
+    sourcetype = "wineventlog"
+
+    def __init__(self, topology: Topology, cache: Optional[VariationCache] = None) -> None:
+        super().__init__(topology, cache)
         self.fmt = WinEventLogFormatter()
         self._record_number = self.rng.randint(100000, 999999)
 
@@ -53,7 +58,7 @@ class WinEventLogGenerator(BaseGenerator):
         self._record_number += 1
         return self._record_number
 
-    def generate(self, ts: datetime) -> list[str]:
+    def _generate_pattern(self, ts: datetime) -> list[str]:
         event_id = self.rng.choices(EVENT_IDS, weights=EVENT_WEIGHTS, k=1)[0]
         task_category, keywords = EVENT_MAP[event_id]
 
@@ -248,3 +253,192 @@ class WinEventLogGenerator(BaseGenerator):
             f"\tAccount Name:\t\t{target.username}\n"
             f"\tAccount Domain:\t\t{target.domain}"
         )
+
+    def render_from_scenario(self, scenario: dict[str, Any], ts: datetime) -> list[str]:
+        event_id = int(scenario.get("event_code", 4624))
+        if event_id not in EVENT_MAP:
+            event_id = 4624
+        task_category, keywords = EVENT_MAP[event_id]
+
+        host = self.topo.random_windows_host()
+        computer = self.topo.fqdn(host.hostname)
+
+        if event_id == 4624:
+            msg = self._scenario_logon(scenario, host)
+        elif event_id == 4625:
+            msg = self._scenario_failed_logon(scenario, host)
+        elif event_id == 4634:
+            msg = self._logoff(ts, host)
+        elif event_id == 4672:
+            msg = self._scenario_special_logon(scenario)
+        elif event_id == 4688:
+            msg = self._scenario_process_create(scenario, host)
+        elif event_id == 4738:
+            msg = self._account_changed(ts, host)
+        else:
+            msg = self._logon(ts, host)
+
+        line = self.fmt.format(
+            ts,
+            event_code=event_id,
+            computer=computer,
+            task_category=task_category,
+            keywords=keywords,
+            message=msg,
+            record_number=self._next_record(),
+        )
+        return [line]
+
+    def _scenario_logon(self, scenario: dict[str, Any], host) -> str:
+        user = self.topo.random_admin_user() if scenario.get("use_admin_user") else self.topo.random_user()
+        logon_type = int(scenario.get("logon_type", self.rng.choice(list(LOGON_TYPES.keys()))))
+        if logon_type not in LOGON_TYPES:
+            logon_type = 3
+        use_external = bool(scenario.get("external_source")) or logon_type == 10
+        src_ip = self.topo.random_external_ip() if use_external else host.ip
+        logon_id = self.topo.random_logon_id()
+        logon_process = str(scenario.get("logon_process") or self.rng.choice(LOGON_PROCESSES))[:32]
+        auth_package = str(scenario.get("auth_package") or self.rng.choice(AUTH_PACKAGES))[:32]
+        return (
+            "An account was successfully logged on.\n"
+            "\n"
+            "Subject:\n"
+            f"\tSecurity ID:\t\t{user.sid}\n"
+            f"\tAccount Name:\t\t{user.username}\n"
+            f"\tAccount Domain:\t\t{user.domain}\n"
+            f"\tLogon ID:\t\t{logon_id}\n"
+            "\n"
+            f"Logon Type:\t\t\t{logon_type}\n"
+            "\n"
+            "New Logon:\n"
+            f"\tSecurity ID:\t\t{user.sid}\n"
+            f"\tAccount Name:\t\t{user.username}\n"
+            f"\tAccount Domain:\t\t{user.domain}\n"
+            f"\tLogon ID:\t\t{logon_id}\n"
+            f"\tLogon GUID:\t\t{self.topo.random_guid()}\n"
+            "\n"
+            "Network Information:\n"
+            f"\tWorkstation Name:\t{host.hostname}\n"
+            f"\tSource Network Address:\t{src_ip}\n"
+            f"\tSource Port:\t\t{self.topo.random_ephemeral_port()}\n"
+            "\n"
+            "Detailed Authentication Information:\n"
+            f"\tLogon Process:\t\t{logon_process}\n"
+            f"\tAuthentication Package:\t{auth_package}\n"
+            "\tTransited Services:\t-\n"
+            "\tPackage Name (NTLM only):\t-\n"
+            "\tKey Length:\t\t0"
+        )
+
+    def _scenario_failed_logon(self, scenario: dict[str, Any], host) -> str:
+        user = self.topo.random_user()
+        use_external = scenario.get("external_source", True)
+        src_ip = self.topo.random_external_ip() if use_external else host.ip
+        caller_pid = self.topo.random_process_id()
+        reason = str(scenario.get("failure_reason") or "Unknown user name or bad password.")[:128]
+        return (
+            "An account failed to log on.\n"
+            "\n"
+            "Subject:\n"
+            "\tSecurity ID:\t\tS-1-0-0\n"
+            "\tAccount Name:\t\t-\n"
+            "\tAccount Domain:\t\t-\n"
+            "\tLogon ID:\t\t0x0\n"
+            "\n"
+            "Logon Type:\t\t\t3\n"
+            "\n"
+            "Account For Which Logon Failed:\n"
+            f"\tSecurity ID:\t\tS-1-0-0\n"
+            f"\tAccount Name:\t\t{user.username}\n"
+            f"\tAccount Domain:\t\t{user.domain}\n"
+            "\n"
+            "Failure Information:\n"
+            f"\tFailure Reason:\t\t{reason}\n"
+            "\tStatus:\t\t\t0xC000006D\n"
+            "\tSub Status:\t\t0xC000006A\n"
+            "\n"
+            "Process Information:\n"
+            f"\tCaller Process ID:\t0x{caller_pid:X}\n"
+            f"\tCaller Process Name:\tC:\\Windows\\System32\\svchost.exe\n"
+            "\n"
+            "Network Information:\n"
+            f"\tWorkstation Name:\t{host.hostname}\n"
+            f"\tSource Network Address:\t{src_ip}\n"
+            f"\tSource Port:\t\t{self.topo.random_ephemeral_port()}\n"
+            "\n"
+            "Detailed Authentication Information:\n"
+            "\tLogon Process:\t\tNtLmSsp\n"
+            "\tAuthentication Package:\tNTLM\n"
+            "\tTransited Services:\t-\n"
+            "\tPackage Name (NTLM only):\t-\n"
+            "\tKey Length:\t\t0"
+        )
+
+    def _scenario_special_logon(self, scenario: dict[str, Any]) -> str:
+        user = self.topo.random_admin_user()
+        logon_id = self.topo.random_logon_id()
+        scenario_privs = scenario.get("privileges") or []
+        clean_privs = [str(p)[:64] for p in scenario_privs if isinstance(p, str)][:8]
+        if not clean_privs:
+            clean_privs = self.rng.sample(PRIVILEGES, k=self.rng.randint(2, 5))
+        priv_list = "\n\t\t\t".join(clean_privs)
+        return (
+            "Special privileges assigned to new logon.\n"
+            "\n"
+            "Subject:\n"
+            f"\tSecurity ID:\t\t{user.sid}\n"
+            f"\tAccount Name:\t\t{user.username}\n"
+            f"\tAccount Domain:\t\t{user.domain}\n"
+            f"\tLogon ID:\t\t{logon_id}\n"
+            "\n"
+            f"Privileges:\t\t\t{priv_list}"
+        )
+
+    def _scenario_process_create(self, scenario: dict[str, Any], host) -> str:
+        user = self.topo.random_user()
+        proc = str(scenario.get("process_path") or self.rng.choice(PROCESS_PATHS))[:260]
+        parent = str(scenario.get("parent_process_path") or self.rng.choice(PROCESS_PATHS))[:260]
+        command_line = str(scenario.get("command_line") or proc)[:1024]
+        command_line = _replace_placeholders(command_line, user=user.username)
+        proc = _replace_placeholders(proc, user=user.username)
+        parent = _replace_placeholders(parent, user=user.username)
+        pid = self.topo.random_process_id()
+        ppid = self.topo.random_process_id()
+        logon_id = self.topo.random_logon_id()
+        token_type = str(scenario.get("token_elevation") or self.rng.choice(["%%1936", "%%1937", "%%1938"]))
+        if token_type not in ("%%1936", "%%1937", "%%1938"):
+            token_type = "%%1938"
+        return (
+            "A new process has been created.\n"
+            "\n"
+            "Creator Subject:\n"
+            f"\tSecurity ID:\t\t{user.sid}\n"
+            f"\tAccount Name:\t\t{user.username}\n"
+            f"\tAccount Domain:\t\t{user.domain}\n"
+            f"\tLogon ID:\t\t{logon_id}\n"
+            "\n"
+            "Target Subject:\n"
+            "\tSecurity ID:\t\tS-1-0-0\n"
+            "\tAccount Name:\t\t-\n"
+            "\tAccount Domain:\t\t-\n"
+            "\tLogon ID:\t\t0x0\n"
+            "\n"
+            "Process Information:\n"
+            f"\tNew Process ID:\t\t0x{pid:X}\n"
+            f"\tNew Process Name:\t{proc}\n"
+            f"\tToken Elevation Type:\t{token_type}\n"
+            f"\tMandatory Label:\tS-1-16-8192\n"
+            f"\tCreator Process ID:\t0x{ppid:X}\n"
+            f"\tCreator Process Name:\t{parent}\n"
+            f"\tProcess Command Line:\t{command_line}"
+        )
+
+
+def _replace_placeholders(value: str, *, user: str) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    return (
+        value.replace("<USER>", user)
+        .replace("<user>", user)
+        .replace("{user}", user)
+    )

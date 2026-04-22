@@ -1,5 +1,30 @@
 const Campaigns = {
   data: [],
+  STORAGE_KEY: 'threatgen.campaigns.lastTriggered',
+
+  getLastTriggeredMap() {
+    try {
+      const raw = localStorage.getItem(Campaigns.STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  },
+
+  setLastTriggered(id, ts) {
+    const map = Campaigns.getLastTriggeredMap();
+    map[id] = ts;
+    try { localStorage.setItem(Campaigns.STORAGE_KEY, JSON.stringify(map)); } catch (_) {}
+  },
+
+  formatLastTriggered(ts) {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleString();
+    } catch (_) { return ''; }
+  },
 
   async render(container) {
     try {
@@ -22,6 +47,8 @@ const Campaigns = {
 
   renderCard(c) {
     const techniques = c.mitre_techniques.map(t => `<span class="mitre-tag">${t}</span>`).join('');
+    const lastTriggeredMap = Campaigns.getLastTriggeredMap();
+    const lastTriggeredText = Campaigns.formatLastTriggered(lastTriggeredMap[c.id]);
     const iocHtml = Object.entries(c.iocs).map(([key, vals]) => {
       if (!vals || !vals.length) return '';
       return `
@@ -58,7 +85,11 @@ const Campaigns = {
 
         <div class="campaign-actions">
           <button class="btn btn-danger" onclick="Campaigns.trigger('${c.id}')">Trigger Now</button>
+          <button class="btn btn-secondary" onclick='HuntModal.open(${JSON.stringify(c.id)}, ${JSON.stringify(c.name)})'>How to Detect</button>
           <span class="trigger-result" id="trigger-result-${c.id}" style="font-size:12px;color:var(--text-secondary)"></span>
+        </div>
+        <div class="campaign-last-triggered" id="last-triggered-${c.id}" style="margin-top:8px;font-size:11px;color:var(--text-muted)">
+          ${lastTriggeredText ? `Last Triggered ${lastTriggeredText}` : ''}
         </div>
       </div>
     `;
@@ -76,5 +107,9 @@ const Campaigns = {
       el.style.color = 'var(--success)';
       setTimeout(() => { el.textContent = ''; }, 5000);
     }
+    const nowIso = new Date().toISOString();
+    Campaigns.setLastTriggered(id, nowIso);
+    const tsEl = document.getElementById(`last-triggered-${id}`);
+    if (tsEl) tsEl.textContent = `Last Triggered ${Campaigns.formatLastTriggered(nowIso)}`;
   },
 };

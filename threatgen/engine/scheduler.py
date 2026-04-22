@@ -21,6 +21,8 @@ from .generators.http import HTTPGenerator
 from .generators.linux_secure import LinuxSecureGenerator
 from .generators.sysmon import SysmonGenerator
 from .generators.wineventlog import WinEventLogGenerator
+from .hec.runtime import hec_runtime
+from .llm.runtime import runtime as llm_runtime
 from .threats.orchestrator import ThreatOrchestrator
 from .topology import Topology
 
@@ -135,12 +137,24 @@ async def _run_engine(cfg: EngineConfig) -> None:
         {name: c.extra for name, c in cfg.campaigns.items()}
     )
 
+    llm_runtime.configure(cfg.llm)
+    if llm_runtime.worker and not llm_runtime.worker.running and not llm_runtime.paused:
+        await llm_runtime.worker.start()
+
+    hec_runtime.configure(cfg.hec)
+    if cfg.hec.enabled and (hec_runtime.forwarder is None or not hec_runtime.forwarder.running):
+        try:
+            await hec_runtime.start()
+        except Exception:
+            logger.exception("hec_runtime_start_failed")
+
+    cache = llm_runtime.cache
     generators: dict[str, BaseGenerator] = {}
     for name in cfg.sourcetypes:
         if name in GENERATOR_CLASSES:
-            generators[name] = GENERATOR_CLASSES[name](topology)
+            generators[name] = GENERATOR_CLASSES[name](topology, cache)
 
-    _orchestrator = ThreatOrchestrator(topology, cfg.campaigns)
+    _orchestrator = ThreatOrchestrator(topology, cfg.campaigns, planner=llm_runtime.planner)
 
     output_dir = Path(cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -188,9 +202,10 @@ async def _run_engine(cfg: EngineConfig) -> None:
                         await ws_manager.broadcast(st, line)
                     except Exception:
                         pass
+                    hec_runtime.submit(st, line, ts, is_threat=False)
                 await engine_state.record_events(st, len(lines))
 
-            threat_events = _orchestrator.tick(ts, elapsed)
+            threat_events = await _orchestrator.tick(ts, elapsed)
             for st, lines in threat_events.items():
                 fh = _file_handles.get(st)
                 sep = "\n\n" if st in MULTILINE_SOURCETYPES else "\n"
@@ -201,6 +216,7 @@ async def _run_engine(cfg: EngineConfig) -> None:
                         await ws_manager.broadcast(st, line)
                     except Exception:
                         pass
+                    hec_runtime.submit(st, line, ts, is_threat=True)
                 await engine_state.record_events(st, len(lines), is_threat=True)
 
             elapsed += 1.0
@@ -279,7 +295,7 @@ async def trigger_campaign(campaign_id: str) -> int:
     if not _orchestrator:
         return 0
     ts = datetime.now(timezone.utc)
-    events = _orchestrator.trigger(campaign_id, ts)
+    events = await _orchestrator.trigger(campaign_id, ts)
     total = 0
     from threatgen.websocket_manager import ws_manager
     for st, lines in events.items():
@@ -293,5 +309,6 @@ async def trigger_campaign(campaign_id: str) -> int:
                 await ws_manager.broadcast(st, line)
             except Exception:
                 pass
+            hec_runtime.submit(st, line, ts, is_threat=True)
         await engine_state.record_events(st, len(lines), is_threat=True)
     return total

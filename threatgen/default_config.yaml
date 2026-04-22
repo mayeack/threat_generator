@@ -10,6 +10,42 @@ diurnal:
 
 threat_ratio: 0.08
 
+# LLM-backed log variety. The Anthropic API key is read exclusively from
+# the ANTHROPIC_API_KEY environment variable and is NEVER stored here.
+# When the key is absent, the LLM worker stays idle and all generators
+# fall back to deterministic pattern output.
+# Splunk HEC forwarding. The token is read EXCLUSIVELY from the
+# SPLUNK_HEC_TOKEN environment variable and is NEVER stored here or
+# in the database. When the token is absent and `enabled` is true,
+# the forwarder starts in a degraded state and records errors.
+hec:
+  enabled: false
+  url: "https://http-inputs-example.splunkcloud.com:443"
+  verify_tls: true
+  default_index: "main"
+  default_source: "threatgen"
+  default_host: "threatgen"
+  sourcetype_map: {}
+  batch_size: 100
+  flush_interval_s: 2.0
+  queue_max: 10000
+  request_timeout_s: 10.0
+  max_retries: 3
+
+llm:
+  enabled: true
+  model: claude-haiku-4-5
+  campaign_model: claude-sonnet-4-5
+  variation_pool_size: 50
+  low_water: 10
+  batch_size: 10
+  refresh_interval_minutes: 60
+  request_timeout_s: 30
+  max_concurrent_requests: 2
+  max_retries: 2
+  max_tokens_variations: 4096
+  max_tokens_campaign: 4096
+
 sourcetypes:
   wineventlog:
     weight: 15

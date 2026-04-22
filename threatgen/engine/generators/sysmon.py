@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
+from typing import Any, Optional
+
+from threatgen.engine.llm.cache import VariationCache
 
 from ..formatters.sysmon_fmt import SysmonFormatter
 from ..topology import Topology
@@ -61,8 +64,10 @@ SYSMON_TID = 3912
 
 
 class SysmonGenerator(BaseGenerator):
-    def __init__(self, topology: Topology) -> None:
-        super().__init__(topology)
+    sourcetype = "sysmon"
+
+    def __init__(self, topology: Topology, cache: Optional[VariationCache] = None) -> None:
+        super().__init__(topology, cache)
         self.fmt = SysmonFormatter()
         self._record_id = self.rng.randint(100000, 999999)
 
@@ -70,7 +75,7 @@ class SysmonGenerator(BaseGenerator):
         self._record_id += 1
         return self._record_id
 
-    def generate(self, ts: datetime) -> list[str]:
+    def _generate_pattern(self, ts: datetime) -> list[str]:
         event_id = self.rng.choices(EVENT_IDS, weights=EVENT_WEIGHTS, k=1)[0]
         host = self.topo.random_windows_host()
         computer = self.topo.fqdn(host.hostname)
@@ -198,3 +203,164 @@ class SysmonGenerator(BaseGenerator):
             ("TargetObject", key),
             ("Details", "DWORD (0x00000001)"),
         ]
+
+    def render_from_scenario(self, scenario: dict[str, Any], ts: datetime) -> list[str]:
+        event_id = int(scenario.get("event_id", 1))
+        if event_id not in (1, 3, 7, 11, 13):
+            event_id = 1
+        host = self.topo.random_windows_host()
+        computer = self.topo.fqdn(host.hostname)
+
+        if event_id == 1:
+            data_fields = self._scenario_process_create(scenario, ts, host)
+        elif event_id == 3:
+            data_fields = self._scenario_network_connect(scenario, ts, host)
+        elif event_id == 7:
+            data_fields = self._scenario_image_loaded(scenario, ts)
+        elif event_id == 11:
+            data_fields = self._scenario_file_create(scenario, ts, host)
+        else:
+            data_fields = self._scenario_registry_value_set(scenario, ts)
+
+        line = self.fmt.format(
+            ts,
+            event_id=event_id,
+            computer=computer,
+            task=event_id,
+            data_fields=data_fields,
+            record_id=self._next_record(),
+            sysmon_pid=SYSMON_PID,
+            sysmon_tid=SYSMON_TID,
+        )
+        return [line]
+
+    def _scenario_process_create(self, scenario, ts, host):
+        user = self.topo.random_user()
+        image = _safe_path(scenario.get("image"), user, self.rng.choice([p[0] for p in PROCESS_TREE]))
+        parent = _safe_path(scenario.get("parent_image"), user, self.rng.choice([p[1] for p in PROCESS_TREE]))
+        command_line = _safe_path(scenario.get("command_line"), user, image)
+        parent_cmd = _safe_path(scenario.get("parent_command_line"), user, parent)
+        cur_dir = _safe_path(scenario.get("current_directory"), user, r"C:\Windows\System32\\")
+        integrity = str(scenario.get("integrity_level") or "Medium")[:16]
+        if integrity not in ("Low", "Medium", "High", "System"):
+            integrity = "Medium"
+        rule_name = str(scenario.get("rule_name") or "")[:256]
+        pid = self.topo.random_process_id()
+        ppid = self.topo.random_process_id()
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        return [
+            ("RuleName", rule_name),
+            ("UtcTime", ts_str),
+            ("ProcessGuid", self.topo.random_guid()),
+            ("ProcessId", str(pid)),
+            ("Image", image),
+            ("CommandLine", command_line),
+            ("CurrentDirectory", cur_dir),
+            ("User", f"{host.domain}\\{user.username}"),
+            ("LogonGuid", self.topo.random_guid()),
+            ("LogonId", self.topo.random_logon_id()),
+            ("IntegrityLevel", integrity),
+            ("Hashes", f"SHA256={self._fake_hash(f'{image}{ts_str}')}"),
+            ("ParentProcessGuid", self.topo.random_guid()),
+            ("ParentProcessId", str(ppid)),
+            ("ParentImage", parent),
+            ("ParentCommandLine", parent_cmd),
+        ]
+
+    def _scenario_network_connect(self, scenario, ts, host):
+        user = self.topo.random_user()
+        image = _safe_path(scenario.get("image"), user, self.rng.choice([p[0] for p in PROCESS_TREE]))
+        use_external = bool(scenario.get("use_external_destination", True))
+        dest_ip = self.topo.random_external_ip() if use_external else self.topo.random_linux_host().ip
+        dest_domain = str(scenario.get("destination_domain") or self.rng.choice(EXTERNAL_DOMAINS))[:253]
+        dest_port = int(scenario.get("destination_port") or 443)
+        if not 1 <= dest_port <= 65535:
+            dest_port = 443
+        protocol = str(scenario.get("protocol") or "tcp")
+        if protocol not in ("tcp", "udp"):
+            protocol = "tcp"
+        rule_name = str(scenario.get("rule_name") or "")[:256]
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        return [
+            ("RuleName", rule_name),
+            ("UtcTime", ts_str),
+            ("ProcessGuid", self.topo.random_guid()),
+            ("ProcessId", str(self.topo.random_process_id())),
+            ("Image", image),
+            ("User", f"{host.domain}\\{user.username}"),
+            ("Protocol", protocol),
+            ("Initiated", "true"),
+            ("SourceIp", host.ip),
+            ("SourceHostname", self.topo.fqdn(host.hostname)),
+            ("SourcePort", str(self.topo.random_ephemeral_port())),
+            ("DestinationIp", dest_ip),
+            ("DestinationHostname", dest_domain),
+            ("DestinationPort", str(dest_port)),
+        ]
+
+    def _scenario_image_loaded(self, scenario, ts):
+        image = _safe_path(scenario.get("image"), None, self.rng.choice([p[0] for p in PROCESS_TREE]))
+        dll = _safe_path(scenario.get("loaded_dll"), None, self.rng.choice(LOADED_DLLS))
+        signed = bool(scenario.get("dll_signed", True))
+        rule_name = str(scenario.get("rule_name") or "")[:256]
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        return [
+            ("RuleName", rule_name),
+            ("UtcTime", ts_str),
+            ("ProcessGuid", self.topo.random_guid()),
+            ("ProcessId", str(self.topo.random_process_id())),
+            ("Image", image),
+            ("ImageLoaded", dll),
+            ("Hashes", f"SHA256={self._fake_hash(dll)}"),
+            ("Signed", "true" if signed else "false"),
+            ("Signature", "Microsoft Windows" if signed else "-"),
+            ("SignatureStatus", "Valid" if signed else "Unavailable"),
+        ]
+
+    def _scenario_file_create(self, scenario, ts, host):
+        user = self.topo.random_user()
+        raw = scenario.get("target_filename")
+        if raw:
+            target = _safe_path(raw, user, raw)
+        else:
+            template = self.rng.choice(TEMP_FILES)
+            rand_hex = f"{self.rng.randint(0, 0xFFFFFF):06X}"
+            target = template.format(user=user.username, rand=rand_hex)
+        image = _safe_path(scenario.get("image"), user, self.rng.choice([p[0] for p in PROCESS_TREE]))
+        rule_name = str(scenario.get("rule_name") or "")[:256]
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        return [
+            ("RuleName", rule_name),
+            ("UtcTime", ts_str),
+            ("ProcessGuid", self.topo.random_guid()),
+            ("ProcessId", str(self.topo.random_process_id())),
+            ("Image", image),
+            ("TargetFilename", target),
+            ("CreationUtcTime", ts_str),
+        ]
+
+    def _scenario_registry_value_set(self, scenario, ts):
+        image = _safe_path(scenario.get("image"), None, self.rng.choice([p[0] for p in PROCESS_TREE]))
+        key = str(scenario.get("registry_key") or self.rng.choice(REGISTRY_KEYS))[:260]
+        value = str(scenario.get("registry_value") or "DWORD (0x00000001)")[:512]
+        rule_name = str(scenario.get("rule_name") or "")[:256]
+        ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        return [
+            ("RuleName", rule_name),
+            ("EventType", "SetValue"),
+            ("UtcTime", ts_str),
+            ("ProcessGuid", self.topo.random_guid()),
+            ("ProcessId", str(self.topo.random_process_id())),
+            ("Image", image),
+            ("TargetObject", key),
+            ("Details", value),
+        ]
+
+
+def _safe_path(value, user, default):
+    if not isinstance(value, str) or not value.strip():
+        return default
+    out = value
+    username = user.username if user else ""
+    out = out.replace("<USER>", username).replace("<user>", username).replace("{user}", username)
+    return out[:260]
