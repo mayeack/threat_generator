@@ -1,18 +1,20 @@
 ---
-description: Keep all design documents (README.md, QUICKSTART.md, and any docs/*.md) synchronized with every code change in ThreatGen
+description: Keep all design documents (README.md, QUICKSTART.md, any docs/*.md) AND every skills/*/SKILL.md synchronized with every code change in ThreatGen
 globs: "**/*.py,**/*.yaml,**/*.yml,**/*.html,**/*.js,**/*.css,**/*.conf,requirements.txt,threatgen/**/*,splunk/**/*,scripts/**/*,skills/**/*"
 alwaysApply: true
 ---
 
 # Documentation Maintenance (ThreatGen)
 
-Treat `README.md` and `QUICKSTART.md` as the canonical **design documents** for
-this project. If a future `docs/` or design folder is added, every file under
-it becomes part of this rule's scope automatically. Whenever you add, modify,
-or remove a feature anywhere in the codebase, update the corresponding
-documentation **in the same change/commit**. Documentation must always reflect
-the current state of the application. A pull request that changes behavior but
-does not update the docs is incomplete.
+Treat `README.md` and `QUICKSTART.md` as the canonical **design documents** and
+every `skills/*/SKILL.md` as a **living runbook** for this project. If a future
+`docs/` or design folder is added, every file under it becomes part of this
+rule's scope automatically. Whenever you add, modify, or remove a feature
+anywhere in the codebase, update the corresponding documentation **and the
+affected skill(s)** **in the same change/commit**. Documentation and skills
+must always reflect the current state of the application. A pull request that
+changes behavior but does not update the docs or the relevant skill is
+incomplete.
 
 ## Golden Rules
 
@@ -27,7 +29,7 @@ does not update the docs is incomplete.
 4. **Install path is `/Applications/ThreatGenerator`.** Never `/Applications/ThreatGen`.
 5. **Server URL is `http://127.0.0.1:8899`.** Use this everywhere in docs.
 6. **Use the internal sourcetype keys consistently:** `wineventlog`, `sysmon`,
-   `linux_secure`, `dns`, `http`, `cisco:asa`.
+   `linux_secure`, `dns`, `stream:http`, `cisco:asa`.
 
 ## What triggers a documentation update
 
@@ -132,7 +134,33 @@ does not update the docs is incomplete.
 
 ### Skills (`skills/`)
 - Adding/removing a skill directory: update the **Architecture** tree in
-  `README.md`.
+  `README.md` with a one-line description of what the skill does.
+- Every skill's `SKILL.md` is a **living runbook**, not a snapshot. Any code
+  change that alters the behavior the skill depends on (field names,
+  sourcetypes, event codes, topology buckets, generator paths, LLM schemas,
+  MCP queries, UI paths, required config toggles, validation thresholds)
+  **must** update the affected `SKILL.md` in the same change/commit:
+  - Preflight/validation SPL examples: update field names, sourcetypes,
+    expected counts, and pass criteria.
+  - Invariant tables (e.g., "every topology host must emit `nt_host`"):
+    re-derive counts from `default_config.yaml` and the generator code;
+    update the rows whenever a new topology bucket or generator path is
+    introduced.
+  - Embedded code references (file paths, helper names, method names):
+    update them when the referenced code moves or is renamed.
+  - Troubleshooting entries: add a new entry whenever a bug was fixed by
+    adjusting the code, not only the docs — future runs of the skill need
+    to recognize the failure mode and apply the same fix.
+  - Final checklist (the copy-paste block at the end): mirror any new
+    required UI step, new event code, new sourcetype, or new inventory row.
+- If a change adds a new Windows EventCode, Sysmon EventID, or sourcetype
+  the skill calls out by name (e.g., `exposure-analytics-setup` enumerates
+  4624/4625/4634/4672/4688/4738/4768/4769/5140/5145), update the enumeration
+  in the skill. Missing codes here are silent bugs: the skill will report
+  "pass" while the inventory stays incomplete.
+- When a skill is extended to cover a new subsystem, cross-link it from the
+  relevant design-doc section (README "Architecture" tree and any feature
+  paragraph that mentions the subsystem).
 
 ### Scripts (`scripts/`)
 - Adding user-facing utility scripts: document them in `QUICKSTART.md`
@@ -153,6 +181,10 @@ new background worker, new optional integration), you **must** still:
    app.
 5. If it consumes a secret, document the env-var name and reaffirm that
    the secret is never persisted.
+6. Check every `skills/*/SKILL.md` for references to the area you changed
+   (grep the skill for sourcetype names, EventCodes, field names, helper
+   names, MCP query shapes). Update any skill that now has a stale step,
+   stale example, or stale pass criterion.
 
 ## Editorial rules
 
@@ -166,3 +198,9 @@ new background worker, new optional integration), you **must** still:
   persisted.
 - Cross-link: when `QUICKSTART.md` references a concept in depth, link to
   the relevant `README.md` section.
+- A skill's `description` frontmatter is the hook that tells the agent
+  when to invoke the skill. Keep it accurate: if you expand a skill to
+  cover a new use case, expand the description too.
+- When a fix is first discovered through a skill run (new MCP query,
+  new UI step, newly observed failure mode), promote it into the skill
+  in the same change as any code fix — never as a "follow-up".

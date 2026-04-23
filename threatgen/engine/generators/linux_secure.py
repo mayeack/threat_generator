@@ -46,7 +46,11 @@ class LinuxSecureGenerator(BaseGenerator):
         return self._render(ts, event_type, scenario)
 
     def _render(self, ts: datetime, event_type: str, scenario: dict[str, Any]) -> list[str]:
-        host = self.topo.random_linux_host()
+        # ~30% of events originate on a DMZ server so Exposure Analytics
+        # discovers dmz-web*/dmz-mail01/dmz-dns01/dmz-jump01/dmz-tomcat01 as
+        # assets via nt_host. The remainder stay on internal Linux hosts.
+        use_dmz_host = bool(self.topo.dmz_servers) and self.rng.random() < 0.3
+        host = self.topo.random_dmz_server() if use_dmz_host else self.topo.random_linux_host()
         user = self.topo.random_user()
         use_external = bool(scenario.get("use_external_source", True))
         src_ip = self.topo.random_external_ip() if use_external else self.topo.random_linux_host().ip
@@ -78,5 +82,17 @@ class LinuxSecureGenerator(BaseGenerator):
             msg = f"pam_unix(sshd:session): session {action} for user {user.username}"
             proc = "sshd"
 
-        line = self.fmt.format(ts, hostname=host.hostname, process=proc, pid=pid, message=msg)
+        line = self.fmt.format(
+            ts,
+            hostname=host.hostname,
+            process=proc,
+            pid=pid,
+            message=msg,
+            nt_host=host.hostname,
+            user=user.username,
+            user_id=user.username,
+            src_ip=src_ip,
+            dest_ip=host.ip,
+            mac=getattr(host, "mac", ""),
+        )
         return [line]

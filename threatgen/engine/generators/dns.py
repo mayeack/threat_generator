@@ -32,7 +32,7 @@ INTERNAL_DOMAINS = [
 
 
 class DNSGenerator(BaseGenerator):
-    sourcetype = "dns"
+    sourcetype = "stream:dns"
 
     def __init__(self, topology: Topology, cache: Optional[VariationCache] = None) -> None:
         super().__init__(topology, cache)
@@ -68,8 +68,11 @@ class DNSGenerator(BaseGenerator):
         is_internal: bool,
         ttl: int,
     ) -> list[str]:
-        host = self.topo.random_windows_host() if self.rng.random() < 0.7 else None
-        src_ip = host.ip if host else self.topo.random_linux_host().ip
+        if self.rng.random() < 0.7:
+            host = self.topo.random_windows_host()
+        else:
+            host = self.topo.random_linux_host()
+        src_ip = host.ip
         resolved_ip = self.topo.dns_server_ip if is_internal else self.topo.random_external_ip()
         response_time = self.rng.randint(1000, 50000)
         txid = self.rng.randint(1000, 65535)
@@ -98,7 +101,14 @@ class DNSGenerator(BaseGenerator):
             "transport": "udp",
             "flow_id": self.topo.random_guid(),
             "protocol_stack": "ip:udp:dns",
+            "nt_host": host.hostname,
+            "mac": getattr(host, "mac", ""),
+            "ip": src_ip,
         }
+
+        user = self.topo.random_user()
+        data["user"] = user.username
+        data["user_id"] = user.username
 
         line = self.fmt.format(ts, data=data)
         return [line]

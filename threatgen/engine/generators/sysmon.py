@@ -75,22 +75,15 @@ class SysmonGenerator(BaseGenerator):
         self._record_id += 1
         return self._record_id
 
-    def _generate_pattern(self, ts: datetime) -> list[str]:
-        event_id = self.rng.choices(EVENT_IDS, weights=EVENT_WEIGHTS, k=1)[0]
-        host = self.topo.random_windows_host()
+    def _emit(
+        self,
+        ts: datetime,
+        event_id: int,
+        host,
+        data_fields: list[tuple[str, str]],
+        entities: dict[str, Any],
+    ) -> list[str]:
         computer = self.topo.fqdn(host.hostname)
-
-        if event_id == 1:
-            data_fields = self._process_create(ts, host)
-        elif event_id == 3:
-            data_fields = self._network_connect(ts, host)
-        elif event_id == 7:
-            data_fields = self._image_loaded(ts, host)
-        elif event_id == 11:
-            data_fields = self._file_create(ts, host)
-        else:
-            data_fields = self._registry_value_set(ts, host)
-
         line = self.fmt.format(
             ts,
             event_id=event_id,
@@ -100,19 +93,39 @@ class SysmonGenerator(BaseGenerator):
             record_id=self._next_record(),
             sysmon_pid=SYSMON_PID,
             sysmon_tid=SYSMON_TID,
+            nt_host=host.hostname,
+            mac=getattr(host, "mac", None),
+            **entities,
         )
         return [line]
+
+    def _generate_pattern(self, ts: datetime) -> list[str]:
+        event_id = self.rng.choices(EVENT_IDS, weights=EVENT_WEIGHTS, k=1)[0]
+        host = self.topo.random_windows_host()
+
+        if event_id == 1:
+            data_fields, entities = self._process_create(ts, host)
+        elif event_id == 3:
+            data_fields, entities = self._network_connect(ts, host)
+        elif event_id == 7:
+            data_fields, entities = self._image_loaded(ts, host)
+        elif event_id == 11:
+            data_fields, entities = self._file_create(ts, host)
+        else:
+            data_fields, entities = self._registry_value_set(ts, host)
+
+        return self._emit(ts, event_id, host, data_fields, entities)
 
     def _fake_hash(self, seed_str: str) -> str:
         return hashlib.sha256(seed_str.encode()).hexdigest().upper()
 
-    def _process_create(self, ts, host):
+    def _process_create(self, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         image, parent_image = self.rng.choice(PROCESS_TREE)
         user = self.topo.random_user()
         pid = self.topo.random_process_id()
         ppid = self.topo.random_process_id()
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", ""),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -130,15 +143,16 @@ class SysmonGenerator(BaseGenerator):
             ("ParentImage", parent_image),
             ("ParentCommandLine", parent_image),
         ]
+        return fields, {"user": user.username, "user_id": user.username}
 
-    def _network_connect(self, ts, host):
+    def _network_connect(self, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
         user = self.topo.random_user()
         dest_ip = self.topo.random_external_ip()
         dest_domain = self.rng.choice(EXTERNAL_DOMAINS)
         dest_port = self.rng.choice([80, 443])
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", ""),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -154,12 +168,18 @@ class SysmonGenerator(BaseGenerator):
             ("DestinationHostname", dest_domain),
             ("DestinationPort", str(dest_port)),
         ]
+        return fields, {
+            "user": user.username,
+            "user_id": user.username,
+            "src_ip": host.ip,
+            "dest_ip": dest_ip,
+        }
 
-    def _image_loaded(self, ts, host):
+    def _image_loaded(self, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
         dll = self.rng.choice(LOADED_DLLS)
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", ""),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -171,15 +191,16 @@ class SysmonGenerator(BaseGenerator):
             ("Signature", "Microsoft Windows"),
             ("SignatureStatus", "Valid"),
         ]
+        return fields, {}
 
-    def _file_create(self, ts, host):
+    def _file_create(self, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         user = self.topo.random_user()
         template = self.rng.choice(TEMP_FILES)
         rand_hex = f"{self.rng.randint(0, 0xFFFFFF):06X}"
         target = template.format(user=user.username, rand=rand_hex)
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", ""),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -188,12 +209,13 @@ class SysmonGenerator(BaseGenerator):
             ("TargetFilename", target),
             ("CreationUtcTime", ts_str),
         ]
+        return fields, {"user": user.username, "user_id": user.username}
 
-    def _registry_value_set(self, ts, host):
+    def _registry_value_set(self, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         image = self.rng.choice([p[0] for p in PROCESS_TREE])
         key = self.rng.choice(REGISTRY_KEYS)
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", ""),
             ("EventType", "SetValue"),
             ("UtcTime", ts_str),
@@ -203,38 +225,28 @@ class SysmonGenerator(BaseGenerator):
             ("TargetObject", key),
             ("Details", "DWORD (0x00000001)"),
         ]
+        return fields, {}
 
     def render_from_scenario(self, scenario: dict[str, Any], ts: datetime) -> list[str]:
         event_id = int(scenario.get("event_id", 1))
         if event_id not in (1, 3, 7, 11, 13):
             event_id = 1
         host = self.topo.random_windows_host()
-        computer = self.topo.fqdn(host.hostname)
 
         if event_id == 1:
-            data_fields = self._scenario_process_create(scenario, ts, host)
+            data_fields, entities = self._scenario_process_create(scenario, ts, host)
         elif event_id == 3:
-            data_fields = self._scenario_network_connect(scenario, ts, host)
+            data_fields, entities = self._scenario_network_connect(scenario, ts, host)
         elif event_id == 7:
-            data_fields = self._scenario_image_loaded(scenario, ts)
+            data_fields, entities = self._scenario_image_loaded(scenario, ts)
         elif event_id == 11:
-            data_fields = self._scenario_file_create(scenario, ts, host)
+            data_fields, entities = self._scenario_file_create(scenario, ts, host)
         else:
-            data_fields = self._scenario_registry_value_set(scenario, ts)
+            data_fields, entities = self._scenario_registry_value_set(scenario, ts)
 
-        line = self.fmt.format(
-            ts,
-            event_id=event_id,
-            computer=computer,
-            task=event_id,
-            data_fields=data_fields,
-            record_id=self._next_record(),
-            sysmon_pid=SYSMON_PID,
-            sysmon_tid=SYSMON_TID,
-        )
-        return [line]
+        return self._emit(ts, event_id, host, data_fields, entities)
 
-    def _scenario_process_create(self, scenario, ts, host):
+    def _scenario_process_create(self, scenario, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         user = self.topo.random_user()
         image = _safe_path(scenario.get("image"), user, self.rng.choice([p[0] for p in PROCESS_TREE]))
         parent = _safe_path(scenario.get("parent_image"), user, self.rng.choice([p[1] for p in PROCESS_TREE]))
@@ -248,7 +260,7 @@ class SysmonGenerator(BaseGenerator):
         pid = self.topo.random_process_id()
         ppid = self.topo.random_process_id()
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", rule_name),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -266,8 +278,9 @@ class SysmonGenerator(BaseGenerator):
             ("ParentImage", parent),
             ("ParentCommandLine", parent_cmd),
         ]
+        return fields, {"user": user.username, "user_id": user.username}
 
-    def _scenario_network_connect(self, scenario, ts, host):
+    def _scenario_network_connect(self, scenario, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         user = self.topo.random_user()
         image = _safe_path(scenario.get("image"), user, self.rng.choice([p[0] for p in PROCESS_TREE]))
         use_external = bool(scenario.get("use_external_destination", True))
@@ -281,7 +294,7 @@ class SysmonGenerator(BaseGenerator):
             protocol = "tcp"
         rule_name = str(scenario.get("rule_name") or "")[:256]
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", rule_name),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -297,14 +310,20 @@ class SysmonGenerator(BaseGenerator):
             ("DestinationHostname", dest_domain),
             ("DestinationPort", str(dest_port)),
         ]
+        return fields, {
+            "user": user.username,
+            "user_id": user.username,
+            "src_ip": host.ip,
+            "dest_ip": dest_ip,
+        }
 
-    def _scenario_image_loaded(self, scenario, ts):
+    def _scenario_image_loaded(self, scenario, ts) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         image = _safe_path(scenario.get("image"), None, self.rng.choice([p[0] for p in PROCESS_TREE]))
         dll = _safe_path(scenario.get("loaded_dll"), None, self.rng.choice(LOADED_DLLS))
         signed = bool(scenario.get("dll_signed", True))
         rule_name = str(scenario.get("rule_name") or "")[:256]
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", rule_name),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -316,8 +335,9 @@ class SysmonGenerator(BaseGenerator):
             ("Signature", "Microsoft Windows" if signed else "-"),
             ("SignatureStatus", "Valid" if signed else "Unavailable"),
         ]
+        return fields, {}
 
-    def _scenario_file_create(self, scenario, ts, host):
+    def _scenario_file_create(self, scenario, ts, host) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         user = self.topo.random_user()
         raw = scenario.get("target_filename")
         if raw:
@@ -329,7 +349,7 @@ class SysmonGenerator(BaseGenerator):
         image = _safe_path(scenario.get("image"), user, self.rng.choice([p[0] for p in PROCESS_TREE]))
         rule_name = str(scenario.get("rule_name") or "")[:256]
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", rule_name),
             ("UtcTime", ts_str),
             ("ProcessGuid", self.topo.random_guid()),
@@ -338,14 +358,15 @@ class SysmonGenerator(BaseGenerator):
             ("TargetFilename", target),
             ("CreationUtcTime", ts_str),
         ]
+        return fields, {"user": user.username, "user_id": user.username}
 
-    def _scenario_registry_value_set(self, scenario, ts):
+    def _scenario_registry_value_set(self, scenario, ts) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         image = _safe_path(scenario.get("image"), None, self.rng.choice([p[0] for p in PROCESS_TREE]))
         key = str(scenario.get("registry_key") or self.rng.choice(REGISTRY_KEYS))[:260]
         value = str(scenario.get("registry_value") or "DWORD (0x00000001)")[:512]
         rule_name = str(scenario.get("rule_name") or "")[:256]
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-        return [
+        fields = [
             ("RuleName", rule_name),
             ("EventType", "SetValue"),
             ("UtcTime", ts_str),
@@ -355,6 +376,7 @@ class SysmonGenerator(BaseGenerator):
             ("TargetObject", key),
             ("Details", value),
         ]
+        return fields, {}
 
 
 def _safe_path(value, user, default):

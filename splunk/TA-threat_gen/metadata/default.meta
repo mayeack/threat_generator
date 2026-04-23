@@ -1,0 +1,21 @@
+[]
+export = system
+access = read : [ * ], write : [ admin, sc_admin ]
+
+[props]
+export = system
+
+[transforms]
+export = system
+
+[fields]
+export = system
+
+[eventtypes]
+export = system
+
+[tags]
+export = system
+
+[views]
+export = none

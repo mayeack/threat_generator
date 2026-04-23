@@ -57,7 +57,7 @@ A pull request that alters the campaign catalog without updating
      free-form `message` field; extract fields with `rex`).
    - `dns` -> `stream:dns` (multi-value fields must be quoted, e.g.
      `"query{}"`, `"query_type{}"`, `"host_addr{}"`).
-   - `http` -> `stream:http` (`src_ip`, `dest_ip`, `site`, `uri_path`,
+   - `stream:http` -> `stream:http` (`src_ip`, `dest_ip`, `site`, `uri_path`,
      `http_method`, `http_user_agent`, `http_content_type`, `bytes_out`
      are directly queryable).
    - `cisco:asa` -> `cisco:asa` (no auto-extractions; use `rex` on the

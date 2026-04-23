@@ -190,7 +190,7 @@ class SnakeByteCampaign(BaseCampaign):
             }
             dns_lines.append(self.json_fmt.format(ts, data=dns_data))
 
-        return {"dns": dns_lines}
+        return {"stream:dns": dns_lines}
 
     def _https_exfil(self, ts, host, computer):
         ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"

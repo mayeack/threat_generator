@@ -116,26 +116,52 @@ Install the following Technology Add-ons on your **search head** (and indexer if
 | Splunk Add-on for Cisco ASA | [Splunk_TA_cisco-asa](https://splunkbase.splunk.com/app/1620) | `cisco:asa` |
 | Splunk Add-on for Stream Wire Data | [Splunk_TA_stream](https://splunkbase.splunk.com/app/1809) | `stream:dns`, `stream:http` |
 
-> **Note:** The bundled `TA-threatgen` app uses `source::` stanzas with `KV_MODE = json` that take higher precedence than any TA-defined sourcetype stanzas. This ensures Splunk parses each line as JSON and extracts the `timestamp` field correctly. The TAs listed above are still needed for CIM mappings and field aliases.
+> **Note:** The bundled `TA-threat_gen` app uses `source::` stanzas with `KV_MODE = json` that take higher precedence than any TA-defined sourcetype stanzas. This ensures Splunk parses each line as JSON and extracts the `timestamp` field correctly. The TAs listed above are still needed for CIM mappings and field aliases.
 
-### Step 1: Deploy TA-threatgen to the Splunk indexer
+### Step 1: Deploy TA-threat_gen
 
-The bundled Splunk app at `splunk/TA-threatgen/` contains `source::`-based parsing rules that must be installed on the **indexer**. All sourcetypes emit single-line JSON. Without this app, Splunk may apply incorrect line-breaking or timestamp extraction rules from other installed TAs.
+The bundled Splunk app at `splunk/TA-threat_gen/` contains `source::`-based parsing rules plus index-time transforms / `fields.conf` `INDEXED = true` declarations for the Exposure Analytics entity fields (`nt_host`, `ip`, `user_id`, `mac`). Because these run at index time, the TA must land on **both the indexer and the search-head tier**.
+
+**Splunk Cloud (Victoria experience)**
+
+From the repo root, build a cloud-compliant tarball and optionally pre-validate with AppInspect, then upload via Splunk Web or ACS:
 
 ```bash
-sudo cp -r splunk/TA-threatgen /opt/splunk/etc/apps/TA-threatgen
+./scripts/package_ta.sh                                    # dist/TA-threat_gen-<version>.tgz
+./scripts/validate_ta.sh dist/TA-threat_gen-1.1.0.tgz       # requires: pip install splunk-appinspect
 ```
 
-### Step 2: Deploy TA-threatgen to the forwarder
+Upload options:
+
+- Splunk Web: **Settings -> Apps -> Install app from file**, select the `.tgz`.
+- ACS API:
+
+  ```bash
+  curl -X POST \
+    -H "Authorization: Bearer $ACS_TOKEN" \
+    -H "ACS-Legal-Ack: Y" \
+    --data-binary @dist/TA-threat_gen-1.1.0.tgz \
+    "https://admin.splunk.com/<stack>/adminconfig/v2/apps/victoria"
+  ```
+
+Victoria routes the app to both search heads and indexers, which is required for `tstats count where index=threat_gen by nt_host` to return values and for Exposure Analytics Validate to clear. (Splunk Cloud Classic customers must open a Cloud Ops ticket to install index-time configs on the indexer tier.)
+
+**On-prem Splunk**
+
+```bash
+sudo cp -r splunk/TA-threat_gen /opt/splunk/etc/apps/TA-threat_gen
+```
+
+### Step 2: Deploy TA-threat_gen to the forwarder
 
 Install the same app on the Universal Forwarder and create a `local/inputs.conf` to enable the file monitors.
 
 ```bash
-sudo cp -r splunk/TA-threatgen /opt/splunkforwarder/etc/apps/TA-threatgen
-sudo mkdir -p /opt/splunkforwarder/etc/apps/TA-threatgen/local
+sudo cp -r splunk/TA-threat_gen /opt/splunkforwarder/etc/apps/TA-threat_gen
+sudo mkdir -p /opt/splunkforwarder/etc/apps/TA-threat_gen/local
 ```
 
-Create `/opt/splunkforwarder/etc/apps/TA-threatgen/local/inputs.conf`:
+Create `/opt/splunkforwarder/etc/apps/TA-threat_gen/local/inputs.conf`:
 
 > **Important:** Update the monitor paths below if ThreatGen is installed somewhere other than `/Applications/ThreatGenerator`.
 
@@ -235,11 +261,11 @@ sudo /opt/splunkforwarder/bin/splunk restart
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Multiple JSON objects in one event | Indexer re-merges events with default `SHOULD_LINEMERGE = true` | Deploy `TA-threatgen` on the indexer |
-| `WinEventLog:Security` events missing or sourcetype shows as `WinEventLog` | `Splunk_TA_windows` renames the sourcetype | `TA-threatgen` `source::` stanzas override this |
-| Fields not extracted from JSON | Missing `KV_MODE = json` in `props.conf` | Deploy latest `TA-threatgen` on both indexer and forwarder |
+| Multiple JSON objects in one event | Indexer re-merges events with default `SHOULD_LINEMERGE = true` | Deploy `TA-threat_gen` on the indexer |
+| `WinEventLog:Security` events missing or sourcetype shows as `WinEventLog` | `Splunk_TA_windows` renames the sourcetype | `TA-threat_gen` `source::` stanzas override this |
+| Fields not extracted from JSON | Missing `KV_MODE = json` in `props.conf` | Deploy latest `TA-threat_gen` on both indexer and forwarder |
 | `linux_secure` or `cisco:asa` events missing entirely | No matching `inputs.conf` monitor on the forwarder | Verify `local/inputs.conf` paths and `disabled = false` |
-| Timestamps show index time instead of event time | `TIME_PREFIX` not set to `"timestamp":"` in `props.conf` | Redeploy the latest `TA-threatgen` to both indexer and forwarder; follow "Reset stale data" steps above |
+| Timestamps show index time instead of event time | `TIME_PREFIX` not set to `"timestamp":"` in `props.conf` | Redeploy the latest `TA-threat_gen` to both indexer and forwarder; follow "Reset stale data" steps above |
 | Old malformed events still appearing after fix | Stale data in the `threat_gen` index | Follow "Reset stale data" steps above |
 
 ## What's Running
@@ -260,7 +286,7 @@ sudo /opt/splunkforwarder/bin/splunk restart
 | `sysmon` | `logs/sysmon.log` | Single-line JSON | 1 |
 | `linux_secure` | `logs/linux_secure.log` | Single-line JSON | 1 |
 | `dns` | `logs/stream_dns.log` | Single-line JSON | 1 |
-| `http` | `logs/stream_http.log` | Single-line JSON | 1 |
+| `stream:http` | `logs/stream_http.log` | Single-line JSON | 1 |
 | `cisco:asa` | `logs/cisco_asa.log` | Single-line JSON | 1 |
 
 ### Embedded Threat Campaigns
@@ -268,13 +294,13 @@ sudo /opt/splunkforwarder/bin/splunk restart
 | Campaign | Class | Phases | Sourcetypes Affected |
 |---|---|---|---|
 | TernDoor | `TernDoorCampaign` | 5 | sysmon, wineventlog, dns, cisco:asa |
-| BruteEntry | `BruteEntryCampaign` | 3 | linux_secure, cisco:asa, dns, http |
-| PeerTime | `PeerTimeCampaign` | 4 | dns, http, linux_secure, cisco:asa |
+| BruteEntry | `BruteEntryCampaign` | 3 | linux_secure, cisco:asa, dns, stream:http |
+| PeerTime | `PeerTimeCampaign` | 4 | dns, stream:http, linux_secure, cisco:asa |
 | CobaltStrike | `CobaltStrikeCampaign` | 4 | sysmon, dns, cisco:asa, wineventlog |
 | DarkGate | `DarkGateCampaign` | 4 | sysmon, wineventlog, cisco:asa |
-| CryptoJack | `CryptoJackCampaign` | 4 | linux_secure, http, cisco:asa, dns |
+| CryptoJack | `CryptoJackCampaign` | 4 | linux_secure, stream:http, cisco:asa, dns |
 | RansomSim | `RansomSimCampaign` | 4 | sysmon, wineventlog, cisco:asa |
-| PhishKit | `PhishKitCampaign` | 4 | dns, http, cisco:asa |
+| PhishKit | `PhishKitCampaign` | 4 | dns, stream:http, cisco:asa |
 | SnakeByte | `SnakeByteCampaign` | 4 | sysmon, wineventlog, dns, cisco:asa |
 
 ## Common Tasks

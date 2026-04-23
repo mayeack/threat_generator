@@ -23,7 +23,7 @@ WINEVENTLOG_SCENARIO_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["event_code", "narrative"],
     "properties": {
-        "event_code": {"type": "integer", "enum": [4624, 4625, 4634, 4672, 4688, 4738]},
+        "event_code": {"type": "integer", "enum": [4624, 4625, 4634, 4672, 4688, 4738, 4768, 4769, 5140, 5145]},
         "narrative": _STRING,
         "logon_type": {"type": "integer", "minimum": 0, "maximum": 11},
         "process_path": {"type": "string", "maxLength": 260},
@@ -169,8 +169,8 @@ SOURCETYPE_SCHEMAS: dict[str, dict[str, Any]] = {
     "wineventlog": WINEVENTLOG_SCENARIO_SCHEMA,
     "sysmon": SYSMON_SCENARIO_SCHEMA,
     "linux_secure": LINUX_SECURE_SCENARIO_SCHEMA,
-    "dns": DNS_SCENARIO_SCHEMA,
-    "http": HTTP_SCENARIO_SCHEMA,
+    "stream:dns": DNS_SCENARIO_SCHEMA,
+    "stream:http": HTTP_SCENARIO_SCHEMA,
     "cisco:asa": FIREWALL_SCENARIO_SCHEMA,
 }
 
@@ -205,7 +205,7 @@ CAMPAIGN_PLAN_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "sourcetype": {
                         "type": "string",
-                        "enum": ["wineventlog", "sysmon", "linux_secure", "dns", "http", "cisco:asa"],
+                        "enum": ["wineventlog", "sysmon", "linux_secure", "stream:dns", "stream:http", "cisco:asa"],
                     },
                     "scenario": {"type": "object"},
                     "use_victim_host": {"type": "boolean"},

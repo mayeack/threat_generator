@@ -111,7 +111,7 @@ class PeerTimeCampaign(BaseCampaign):
             ),
         )
 
-        return {"dns": [dns_line], "http": http_lines, "linux_secure": [sudo_line], "cisco:asa": [asa_line]}
+        return {"stream:dns": [dns_line], "stream:http": http_lines, "linux_secure": [sudo_line], "cisco:asa": [asa_line]}
 
     def _docker_check(self, ts):
         host = self._victim
@@ -173,7 +173,7 @@ class PeerTimeCampaign(BaseCampaign):
                                 )),
         ]
 
-        return {"dns": [dns_line], "cisco:asa": asa_lines}
+        return {"stream:dns": [dns_line], "cisco:asa": asa_lines}
 
     def _payload_deploy(self, ts):
         host = self._victim

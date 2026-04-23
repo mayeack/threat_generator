@@ -23,9 +23,35 @@ hec:
   url: "https://http-inputs-example.splunkcloud.com:443"
   verify_tls: true
   default_index: "main"
+  # ``default_source`` is used as a PREFIX. At send-time the forwarder appends
+  # a per-family suffix (e.g. ``:wineventlog``, ``:stream_dns``, ``:cisco_asa``)
+  # so every event carries a source that matches the TA-threat_gen
+  # ``[source::threatgen:*]`` stanzas in props.conf. That is what enables
+  # ``KV_MODE = json`` and the index-time entity-field transforms for
+  # ``nt_host`` / ``ip`` / ``user_id`` / ``mac`` to fire.
   default_source: "threatgen"
   default_host: "threatgen"
-  sourcetype_map: {}
+  # Internal ThreatGen sourcetype keys -> OOTB Splunk sourcetypes on the wire.
+  # Ships with defaults so HEC-only deployments (no TA-threat_gen on the
+  # indexer tier) land events under the same sourcetypes used by every
+  # bundled hunt guide, dashboard, and skill. TA-threat_gen is still
+  # recommended: it also sets KV_MODE=json and the index-time entity-field
+  # transforms (nt_host / ip / user_id / mac) that HEC alone does not.
+  sourcetype_map:
+    wineventlog: "WinEventLog:Security"
+    sysmon: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    linux_secure: "linux_secure"
+    "stream:dns": "stream:dns"
+    "stream:http": "stream:http"
+    "cisco:asa": "cisco:asa"
+  # Canonical source paths for families whose EA discovery source filters
+  # require a specific ``source=``. The HEC forwarder applies a hard-coded
+  # canonical overlay on top of this map, so even a stale DB row cannot
+  # regress below the minimum shape Exposure Analytics expects.
+  source_map:
+    wineventlog: "WinEventLog:Security"
+    sysmon: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    linux_secure: "/var/log/secure"
   batch_size: 100
   flush_interval_s: 2.0
   queue_max: 10000
@@ -56,10 +82,10 @@ sourcetypes:
   linux_secure:
     weight: 3
     file: linux_secure.log
-  dns:
+  "stream:dns":
     weight: 30
     file: stream_dns.log
-  http:
+  "stream:http":
     weight: 10
     file: stream_http.log
   "cisco:asa":

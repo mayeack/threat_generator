@@ -298,4 +298,4 @@ class TernDoorCampaign(BaseCampaign):
             ),
         )
 
-        return {"sysmon": [sysmon_line], "dns": [dns_line], "cisco:asa": [asa_line]}
+        return {"sysmon": [sysmon_line], "stream:dns": [dns_line], "cisco:asa": [asa_line]}

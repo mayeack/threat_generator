@@ -93,7 +93,7 @@ class CryptoJackCampaign(BaseCampaign):
             ),
         )
 
-        return {"linux_secure": linux_lines, "http": [http_line], "cisco:asa": [asa_line]}
+        return {"linux_secure": linux_lines, "stream:http": [http_line], "cisco:asa": [asa_line]}
 
     def _cron_persistence(self, ts):
         host = self._victim
@@ -157,7 +157,7 @@ class CryptoJackCampaign(BaseCampaign):
             ),
         )
 
-        return {"dns": [dns_line], "cisco:asa": [asa_line]}
+        return {"stream:dns": [dns_line], "cisco:asa": [asa_line]}
 
     def _c2_beacon(self, ts):
         host = self._victim

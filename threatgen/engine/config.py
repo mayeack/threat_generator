@@ -6,6 +6,39 @@ from typing import Any, Optional
 from threatgen.engine.llm.client import LLMConfig
 
 
+# Canonical Splunk sourcetypes emitted by the HEC forwarder. Keys are the
+# internal ThreatGen sourcetype names used by the generators; values are the
+# OOTB Splunk sourcetypes that Exposure Analytics, CIM datamodels, and every
+# bundled hunt guide / dashboard / skill already target. Keeping this map
+# close to the dataclass (not just the YAML) ensures that even a stored
+# config in threatgen.db that predates the map still lands events under the
+# canonical sourcetypes; without it, Exposure Analytics entity templates
+# would need per-install customization. `_migrate_hec_sourcetype_map` in
+# threatgen/database.py backfills these entries into persisted configs.
+_CANONICAL_HEC_SOURCETYPE_MAP: dict[str, str] = {
+    "wineventlog": "WinEventLog:Security",
+    "sysmon": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "linux_secure": "linux_secure",
+    "stream:dns": "stream:dns",
+    "stream:http": "stream:http",
+    "cisco:asa": "cisco:asa",
+}
+
+
+# Canonical Splunk ``source`` values emitted by the HEC forwarder. Only three
+# families need source overrides: EA's Linux_sshd / WinSysmon / WinSecurity
+# discovery sources include ``source=...`` terms in their OOTB search filters.
+# stream:* and cisco:asa have no ``source=`` requirement, so they keep their
+# legacy ``threatgen:<family>`` derivation. `_migrate_hec_source_map` in
+# threatgen/database.py backfills these entries into persisted configs so
+# upgrading deployments get the canonical mapping without manual edits.
+_CANONICAL_HEC_SOURCE_MAP: dict[str, str] = {
+    "wineventlog": "WinEventLog:Security",
+    "sysmon": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "linux_secure": "/var/log/secure",
+}
+
+
 @dataclass
 class HECConfig:
     enabled: bool = False
@@ -14,7 +47,12 @@ class HECConfig:
     default_index: str = "main"
     default_source: str = "threatgen"
     default_host: str = "threatgen"
-    sourcetype_map: dict[str, str] = field(default_factory=dict)
+    sourcetype_map: dict[str, str] = field(
+        default_factory=lambda: dict(_CANONICAL_HEC_SOURCETYPE_MAP)
+    )
+    source_map: dict[str, str] = field(
+        default_factory=lambda: dict(_CANONICAL_HEC_SOURCE_MAP)
+    )
     batch_size: int = 100
     flush_interval_s: float = 2.0
     queue_max: int = 10000
@@ -103,6 +141,10 @@ def parse_config(raw: dict) -> EngineConfig:
     sourcetype_map = {
         str(k): str(v) for k, v in sourcetype_map_raw.items() if isinstance(k, str)
     }
+    source_map_raw = hec_raw.get("source_map", hec_defaults.source_map) or {}
+    source_map = {
+        str(k): str(v) for k, v in source_map_raw.items() if isinstance(k, str)
+    }
     hec = HECConfig(
         enabled=bool(hec_raw.get("enabled", hec_defaults.enabled)),
         url=str(hec_raw.get("url", hec_defaults.url) or ""),
@@ -111,6 +153,7 @@ def parse_config(raw: dict) -> EngineConfig:
         default_source=str(hec_raw.get("default_source", hec_defaults.default_source)),
         default_host=str(hec_raw.get("default_host", hec_defaults.default_host)),
         sourcetype_map=sourcetype_map,
+        source_map=source_map,
         batch_size=max(1, int(hec_raw.get("batch_size", hec_defaults.batch_size))),
         flush_interval_s=max(0.1, float(hec_raw.get("flush_interval_s", hec_defaults.flush_interval_s))),
         queue_max=max(1, int(hec_raw.get("queue_max", hec_defaults.queue_max))),

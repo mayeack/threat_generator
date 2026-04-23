@@ -142,6 +142,9 @@ Hunt Completion Checklist:
 - **For multiple findings (preferred):** use the batch pattern (Pattern 5: chained `makeresults` + `append` + single `sendalert notable`) to produce ONE Notable Event per finding in a single SPL command. This is the default when a hunt yields two or more findings.
 - For one-off escalation of a specific finding, use the ad-hoc pattern (Pattern 2: `makeresults` + `sendalert notable`)
 - For ongoing detection, use the correlation search template (Pattern 3) with appropriate thresholds and scheduling window
+- For enriched pivots, use Pattern 4 (drilldown + MITRE), which pivots on `src`, `user`, and `dest` together
+- **For risk attribution (suggestive-but-not-actionable findings):** use the RBA pattern (Pattern 6: `sendalert risk` with `risk_object`, `risk_object_type`, `risk_score`) so findings accumulate risk per entity and ES promotes them to Notables when risk thresholds are crossed. Combine with Pattern 1/5 when a finding should both raise a Notable and contribute to entity risk.
+- **Entity fidelity:** before any `sendalert notable` or `sendalert risk`, verify the pipeline preserves entity fields (`src`, `dest`, `user`, and where applicable `src_user`, `dvc`, `process`, `file_hash`). See the Entity Normalization Guardrails section in [SPL_PATTERNS.md](SPL_PATTERNS.md) for aggregation, host-vs-IP, and actor-vs-target handling.
 
 **5. Create Dashboard**: If the hunt produced findings that warrant ongoing monitoring or analyst review (Detection Hierarchy Level 2), invoke the `splunk-dashboard-studio` skill. Pass it:
 

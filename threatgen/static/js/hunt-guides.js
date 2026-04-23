@@ -7,7 +7,7 @@
 //              wineventlog -> WinEventLog:Security
 //              linux_secure-> linux_secure
 //              dns         -> stream:dns
-//              http        -> stream:http
+//              stream:http -> stream:http
 //              cisco:asa   -> cisco:asa
 //            Sysmon fields are nested under EventData.* and must be quoted.
 //            WinEventLog:Security lacks discrete extractions; search the

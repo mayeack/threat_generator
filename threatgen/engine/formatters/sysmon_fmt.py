@@ -9,7 +9,12 @@ SYSMON_GUID = "{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"
 
 
 class SysmonFormatter(BaseFormatter):
-    """Format events as single-line JSON for Sysmon."""
+    """Format events as single-line JSON for Sysmon.
+
+    Top-level entity-discovery fields are emitted alongside the native
+    EventData map so Splunk ES Exposure Analytics can auto-discover Asset,
+    IP, User, and MAC entities from a streaming source search.
+    """
 
     def format(self, ts: datetime, **fields) -> str:
         event_id = fields.get("event_id", 1)
@@ -24,7 +29,7 @@ class SysmonFormatter(BaseFormatter):
 
         event_data = {name: value for name, value in data_fields}
 
-        data = {
+        data: dict[str, object] = {
             "timestamp": ts_str,
             "Provider": "Microsoft-Windows-Sysmon",
             "ProviderGuid": SYSMON_GUID,
@@ -42,4 +47,30 @@ class SysmonFormatter(BaseFormatter):
             "UserID": "S-1-5-18",
             "EventData": event_data,
         }
+
+        nt_host = fields.get("nt_host")
+        if nt_host:
+            data["nt_host"] = nt_host
+        dest_nt_host = fields.get("dest_nt_host")
+        if dest_nt_host:
+            data["dest_nt_host"] = dest_nt_host
+        user = fields.get("user")
+        if user:
+            data["user"] = user
+        user_id = fields.get("user_id")
+        if user_id:
+            data["user_id"] = user_id
+        src_ip = fields.get("src_ip")
+        if src_ip:
+            data["src_ip"] = src_ip
+        dest_ip = fields.get("dest_ip")
+        if dest_ip:
+            data["dest_ip"] = dest_ip
+        ip = fields.get("ip") or src_ip or dest_ip
+        if ip:
+            data["ip"] = ip
+        mac = fields.get("mac")
+        if mac:
+            data["mac"] = mac
+
         return json.dumps(data, separators=(",", ":"))

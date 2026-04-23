@@ -25,17 +25,47 @@ Nine campaigns cycle through phases on each trigger, producing correlated events
 
 | Campaign | Phases | Sourcetypes Affected | Techniques | MITRE IDs |
 |---|---|---|---|---|
-| **TernDoor** | 5 | sysmon, wineventlog, dns, cisco:asa | DLL side-loading, persistence, driver install, C2 beacon | T1574.002, T1055, T1547.001, T1053.005, T1014, T1543.003, T1071.001 |
-| **BruteEntry** | 3 | linux_secure, cisco:asa, dns, http | SSH/Tomcat/Postgres brute-force from ORB IPs | T1110.001, T1110.003, T1595.002 |
-| **PeerTime** | 4 | dns, http, linux_secure, cisco:asa | ELF backdoor, BitTorrent P2P C2, Docker/BusyBox abuse | T1071.001, T1059.004, T1036.004, T1610 |
-| **CobaltStrike** | 4 | sysmon, dns, cisco:asa, wineventlog | PowerShell cradle, process hollowing, WinRM lateral movement, named pipe C2 | T1059.001, T1071.001, T1055.012, T1021.006, T1105 |
+| **TernDoor** | 5 | sysmon, wineventlog, stream:dns, cisco:asa | DLL side-loading, persistence, driver install, C2 beacon | T1574.002, T1055, T1547.001, T1053.005, T1014, T1543.003, T1071.001 |
+| **BruteEntry** | 3 | linux_secure, cisco:asa, stream:dns, stream:http | SSH/Tomcat/Postgres brute-force from ORB IPs | T1110.001, T1110.003, T1595.002 |
+| **PeerTime** | 4 | stream:dns, stream:http, linux_secure, cisco:asa | ELF backdoor, BitTorrent P2P C2, Docker/BusyBox abuse | T1071.001, T1059.004, T1036.004, T1610 |
+| **CobaltStrike** | 4 | sysmon, stream:dns, cisco:asa, wineventlog | PowerShell cradle, process hollowing, WinRM lateral movement, named pipe C2 | T1059.001, T1071.001, T1055.012, T1021.006, T1105 |
 | **DarkGate** | 4 | sysmon, wineventlog, cisco:asa | MSI loader, AutoIt execution, credential harvest, C2 exfiltration | T1566.001, T1218.007, T1059.010, T1555.003, T1041 |
-| **CryptoJack** | 4 | linux_secure, http, cisco:asa, dns | XMRig cryptominer, cron persistence, Stratum pool connections | T1496, T1059.004, T1053.003, T1105 |
+| **CryptoJack** | 4 | linux_secure, stream:http, cisco:asa, stream:dns | XMRig cryptominer, cron persistence, Stratum pool connections | T1496, T1059.004, T1053.003, T1105 |
 | **RansomSim** | 4 | sysmon, wineventlog, cisco:asa | Shadow copy deletion, service stop, file encryption, ransom note | T1486, T1490, T1489, T1059.001, T1547.001 |
-| **PhishKit** | 4 | dns, http, cisco:asa | AitM credential phishing proxy, OAuth token theft, mailbox access | T1566.002, T1557, T1539, T1114.002, T1078 |
-| **SnakeByte** | 4 | sysmon, wineventlog, dns, cisco:asa | SMB collection, 7-Zip staging, DNS tunnel exfil, HTTPS bulk transfer | T1048.001, T1071.004, T1132.001, T1560.001, T1005 |
+| **PhishKit** | 4 | stream:dns, stream:http, cisco:asa | AitM credential phishing proxy, OAuth token theft, mailbox access | T1566.002, T1557, T1539, T1114.002, T1078 |
+| **SnakeByte** | 4 | sysmon, wineventlog, stream:dns, cisco:asa | SMB collection, 7-Zip staging, DNS tunnel exfil, HTTPS bulk transfer | T1048.001, T1071.004, T1132.001, T1560.001, T1005 |
 
 TernDoor, BruteEntry, and PeerTime use IOC data (IPs, domains, hashes) sourced from the UAT-9244 Talos report. The remaining campaigns use realistic IOCs modeled after their respective malware families.
+
+### Entity-discovery fields (Splunk ES 8 Exposure Analytics)
+
+Every generated JSON event carries the four CIM-aligned Exposure Analytics key fields at the **top level** (not nested in `EventData` or the syslog `message`), so Splunk ES 8 Exposure Analytics can auto-populate its Asset, IP, User, and MAC inventories from a streaming source with no pipe operators in the event search:
+
+| Field | Inventory it feeds | Source in ThreatGen |
+|---|---|---|
+| `nt_host` | Asset | `host.hostname` for the host the event originates on |
+| `ip` | IP | Primary observed IP (`src_ip` when available, else `dest_ip`) |
+| `user_id` | User | `user.username` (also mirrored as `user` for CIM) |
+| `mac` | MAC | Deterministic locally-administered MAC derived from hostname at topology load (`02:xx:xx:xx:xx:xx`) |
+
+Supporting fields `src_ip`, `dest_ip`, and `dest_nt_host` are also promoted to the top level so network-event correlation and IP↔Asset reconciliation work without custom extractions.
+
+#### Full-topology Asset coverage invariant
+
+Every host defined in the active topology must be the top-level `nt_host` on at least one generator path. A host that only appears as `dest_nt_host` or embedded in a message cannot be discovered as an Asset by Exposure Analytics. The generators are wired for this as follows:
+
+| Topology bucket | Sourcetype | Generator path | Notes |
+|---|---|---|---|
+| `windows_hosts` | `WinEventLog:Security` | `WinEventLogGenerator._host_for_event` (default) | Covers EventCode 4624/4625/4634/4672/4688/4738 |
+| `domain_controllers` | `WinEventLog:Security` | `WinEventLogGenerator._host_for_event` for **4768/4769** | Kerberos AS-REQ / TGS-REQ events originate on DCs |
+| `file_servers` | `WinEventLog:Security` | `WinEventLogGenerator._host_for_event` for **5140/5145** | SMB share access / detailed share access originate on file servers |
+| `linux_hosts` | `linux_secure` | `LinuxSecureGenerator._render` (~70%) | sshd / sudo events |
+| `dmz_servers` | `linux_secure` | `LinuxSecureGenerator._render` (~30%) | 30% of sshd/sudo events are sourced from a random `dmz_server` |
+| `firewalls` | `cisco:asa` | `CiscoAsaGenerator` | `src_ip` + `dest_ip` populate the IP inventory |
+
+Editing the topology? Add the corresponding `Topology.random_<role>()` helper **and** wire it into at least one generator as `nt_host` before shipping; otherwise the new host will be invisible to Exposure Analytics. The [`exposure-analytics-setup` skill](skills/exposure-analytics-setup/SKILL.md) documents the validating MCP query (distinct counts should match the topology: 32 hosts, 32 MACs, 13 users for the default config).
+
+To wire this up inside Splunk ES 8 end-to-end (predefined + custom streaming sources, compliance windows, preflight / post-setup validation), invoke the [`exposure-analytics-setup` skill](skills/exposure-analytics-setup/SKILL.md).
 
 ## Architecture
 
@@ -128,13 +158,19 @@ threatgen/
 
 scripts/
   peak_hunt_queries.py    # Utility SPL query scripts
+  package_ta.sh           # Builds dist/TA-threat_gen-<version>.tgz for Splunk Cloud upload
+  validate_ta.sh          # Runs splunk-appinspect with --included-tags cloud on the tarball
 
 splunk/
-  TA-threatgen/           # Splunk TA for log ingestion (props.conf, inputs.conf)
+  TA-threat_gen/          # Splunk TA for log ingestion (props, transforms, fields, inputs)
+                          #   Build the uploadable package with ./scripts/package_ta.sh;
+                          #   result lands in dist/TA-threat_gen-<version>.tgz.
   TA-threat_hunting/      # Splunk TA for threat hunting (saved searches, KV store)
 
 skills/
-  peak-threat-hunting/    # PEAK framework threat hunting skill + templates
+  peak-threat-hunting/       # PEAK framework threat hunting skill + templates
+  exposure-analytics-setup/  # Wire ThreatGen into Splunk ES 8 Exposure Analytics
+                             #   entity discovery (Assets/IP/User/MAC inventories)
 ```
 
 - **Backend**: FastAPI (async) with uvicorn, SQLite via aiosqlite
@@ -237,7 +273,7 @@ Interactive docs are available at `http://127.0.0.1:8899/docs` when the server i
 | `POST` | `/api/llm/pause` | Stop the variation worker in-process (cleared on restart) |
 | `POST` | `/api/llm/resume` | Resume the variation worker when eligible |
 | `POST` | `/api/llm/refresh` | Ask the variation worker to top up the scenario cache immediately |
-| `GET` | `/api/llm/preview?sourcetype=dns&n=3` | Render up to N cached scenarios through the corresponding generator (no consumption) |
+| `GET` | `/api/llm/preview?sourcetype=stream:dns&n=3` | Render up to N cached scenarios through the corresponding generator (no consumption) |
 
 Key resolution order is **env var → OS keychain → disabled**. The `ANTHROPIC_API_KEY` environment variable always takes precedence. Keys are validated for format, never written to the database or YAML, and never returned from any endpoint. When no key is available, the LLM worker stays disabled and generators fall back to deterministic pattern output — the dashboard shows an `LLM: fallback` pill.
 
@@ -259,7 +295,7 @@ Token resolution order is **env var (`SPLUNK_HEC_TOKEN`) → OS keychain → dis
 
 | Path | Description |
 |---|---|
-| `/ws/logs/{sourcetype}` | Live log stream for a sourcetype (`wineventlog`, `sysmon`, `linux_secure`, `dns`, `http`, `cisco:asa`, or `all`) |
+| `/ws/logs/{sourcetype}` | Live log stream for a sourcetype (`wineventlog`, `sysmon`, `linux_secure`, `stream:dns`, `stream:http`, `cisco:asa`, or `all`) |
 
 Messages arrive as `{sourcetype}|{log_line}`. The frontend reconnects automatically with a 3-second backoff.
 
@@ -309,7 +345,7 @@ All settings are editable through the web UI (Configuration and Settings pages) 
 | `default_index` | `main` | Fallback index applied to events without an explicit index. |
 | `default_source` | `threatgen` | Fallback `source` field. |
 | `default_host` | `threatgen` | Fallback `host` field. |
-| `sourcetype_map` | `{}` | Override mapping from internal sourcetype keys (`wineventlog`, `sysmon`, `linux_secure`, `dns`, `http`, `cisco:asa`) to Splunk sourcetypes. |
+| `sourcetype_map` | OOTB defaults | Mapping from internal sourcetype keys (`wineventlog`, `sysmon`, `linux_secure`, `stream:dns`, `stream:http`, `cisco:asa`) to Splunk sourcetypes on the wire. Ships pre-populated with the out-of-the-box Splunk names (e.g., `sysmon` -> `XmlWinEventLog:Microsoft-Windows-Sysmon/Operational`, `wineventlog` -> `WinEventLog:Security`) so HEC-only deployments match every bundled hunt guide, dashboard, and skill without TA re-sourcetyping. Edit or clear entries in Settings to override. |
 | `batch_size` | `100` | Events per HEC batch. |
 | `flush_interval_s` | `2.0` | Max time to hold events before flushing a partial batch. |
 | `queue_max` | `10000` | Bounded queue capacity. Overflow drops the oldest events. |

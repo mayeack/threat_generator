@@ -3,13 +3,13 @@ const LogViewer = {
   activeTab: 'wineventlog',
   maxLines: 500,
   autoScroll: true,
-  sourcetypes: ['wineventlog', 'sysmon', 'linux_secure', 'dns', 'http', 'cisco:asa'],
+  sourcetypes: ['wineventlog', 'sysmon', 'linux_secure', 'stream:dns', 'stream:http', 'cisco:asa'],
   labels: {
     wineventlog: 'WinEventLog',
     sysmon: 'Sysmon',
     linux_secure: 'linux_secure',
-    dns: 'DNS (stream)',
-    http: 'HTTP (stream)',
+    'stream:dns': 'DNS (stream)',
+    'stream:http': 'HTTP (stream)',
     'cisco:asa': 'Cisco ASA',
   },
   threatPatterns: [

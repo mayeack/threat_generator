@@ -31,7 +31,7 @@ Return JSON of the form:
 {"scenarios": [ {...}, {...} ]}
 
 Each scenario must include at minimum:
-  - event_code: one of 4624, 4625, 4634, 4672, 4688, 4738
+  - event_code: one of 4624, 4625, 4634, 4672, 4688, 4738, 4768, 4769, 5140, 5145
   - narrative:  short plain-English reason for the event
 
 For 4624 (successful logon) include logon_type (2/3/5/7/10), logon_process,
@@ -44,10 +44,17 @@ SeSecurityPrivilege, SeBackupPrivilege, SeRestorePrivilege,
 SeTakeOwnershipPrivilege, SeDebugPrivilege, SeSystemEnvironmentPrivilege,
 SeLoadDriverPrivilege, SeImpersonatePrivilege).
 For 4738 (account changed) set use_admin_user=true so the subject is an admin.
+For 4768 (Kerberos TGT requested) and 4769 (Kerberos service ticket
+requested) the event is logged by a domain controller; narrative should
+describe the authenticating user and requested service.
+For 5140 (network share accessed) and 5145 (detailed file share access)
+the event is logged by a file server; narrative should describe the
+share being accessed.
 
-Distribute a batch roughly as: 45% 4624, 8% 4625, 20% 4634, 10% 4672,
-15% 4688, 2% 4738. Vary process paths (real Windows tooling, Office apps,
-browsers, developer tools, PowerShell, wscript, conhost, etc.).
+Distribute a batch roughly as: 35% 4624, 5% 4625, 18% 4634, 8% 4672,
+15% 4688, 2% 4738, 6% 4768, 7% 4769, 2% 5140, 2% 5145. Vary process
+paths (real Windows tooling, Office apps, browsers, developer tools,
+PowerShell, wscript, conhost, etc.).
 """
 
 
@@ -158,8 +165,8 @@ SOURCETYPE_PROMPTS: dict[str, str] = {
     "wineventlog": _WINEVENTLOG_PROMPT,
     "sysmon": _SYSMON_PROMPT,
     "linux_secure": _LINUX_SECURE_PROMPT,
-    "dns": _DNS_PROMPT,
-    "http": _HTTP_PROMPT,
+    "stream:dns": _DNS_PROMPT,
+    "stream:http": _HTTP_PROMPT,
     "cisco:asa": _FIREWALL_PROMPT,
 }
 
@@ -182,8 +189,8 @@ to look like the campaign in enterprise telemetry.
 
 Rules:
 - STRICT JSON only. No prose, no markdown.
-- Each step must include sourcetype (wineventlog|sysmon|linux_secure|dns|
-  http|cisco:asa) and scenario (matching that sourcetype's field rules -
+- Each step must include sourcetype (wineventlog|sysmon|linux_secure|stream:dns|
+  stream:http|cisco:asa) and scenario (matching that sourcetype's field rules -
   same rules as the baseline scenario prompts).
 - For any step that should reference the campaign's C2 infrastructure, set
   use_c2_ip=true or use_c2_domain=true; downstream code will substitute

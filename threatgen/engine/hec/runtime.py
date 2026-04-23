@@ -8,7 +8,7 @@ from typing import Optional
 from threatgen.engine.config import HECConfig
 
 from .client import HECSendResult
-from .forwarder import HECForwarder, HECStats
+from .forwarder import HECForwarder, HECStats, _derive_source
 from .key_store import ENV_KEY_NAME as HEC_TOKEN_ENV, hec_key_store
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class HECRuntime:
             event = {
                 "time": round(ts.timestamp(), 3),
                 "host": self._cfg.default_host or "threatgen",
-                "source": self._cfg.default_source or "threatgen",
+                "source": _derive_source(self._cfg.default_source, "test"),
                 "sourcetype": "threatgen:test",
                 "index": self._cfg.default_index or "main",
                 "event": f"threatgen HEC connectivity test at {ts.isoformat()}Z",

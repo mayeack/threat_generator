@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import random
 import uuid
 from dataclasses import dataclass, field
 from ipaddress import IPv4Address, IPv4Network
 from typing import Any, Optional
+
+
+def _deterministic_mac(seed: str) -> str:
+    """Derive a stable locally-administered MAC address from a seed string.
+
+    The 02: OUI prefix is the IEEE locally-administered unicast space, so it
+    cannot collide with real vendor MACs. Five bytes of SHA-256 provide the
+    remaining entropy and keep the value stable across runs for a given host.
+    """
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return "02:" + ":".join(digest[i : i + 2] for i in (0, 2, 4, 6, 8)).upper()
 
 
 @dataclass
@@ -13,6 +25,7 @@ class WindowsHost:
     ip: str
     os_version: str = "Windows 10 Enterprise"
     domain: str = "CORPDOMAIN"
+    mac: str = ""
 
 
 @dataclass
@@ -20,6 +33,7 @@ class LinuxHost:
     hostname: str
     ip: str
     os_version: str = "Ubuntu 22.04"
+    mac: str = ""
 
 
 @dataclass
@@ -28,6 +42,7 @@ class DMZServer:
     hostname: str
     role: str
     ports: list[int] = field(default_factory=list)
+    mac: str = ""
 
 
 @dataclass
@@ -36,6 +51,7 @@ class Firewall:
     inside_ip: str
     outside_ip: str
     dmz_ip: str
+    mac: str = ""
     _conn_counter: int = field(default=0, repr=False)
 
     def next_conn_id(self) -> int:
@@ -59,27 +75,62 @@ class Topology:
         self.dns_server_ip: str = data.get("dns_server_ip", "10.1.0.10")
 
         self.windows_hosts = [
-            WindowsHost(h["hostname"], h["ip"], h.get("os_version", "Windows 10 Enterprise"), self.domain_name)
+            WindowsHost(
+                h["hostname"],
+                h["ip"],
+                h.get("os_version", "Windows 10 Enterprise"),
+                self.domain_name,
+                h.get("mac") or _deterministic_mac(h["hostname"]),
+            )
             for h in data.get("windows_hosts", [])
         ]
         self.linux_hosts = [
-            LinuxHost(h["hostname"], h["ip"], h.get("os_version", "Ubuntu 22.04"))
+            LinuxHost(
+                h["hostname"],
+                h["ip"],
+                h.get("os_version", "Ubuntu 22.04"),
+                h.get("mac") or _deterministic_mac(h["hostname"]),
+            )
             for h in data.get("linux_hosts", [])
         ]
         self.domain_controllers = [
-            WindowsHost(h["hostname"], h["ip"], h.get("os_version", "Windows Server 2019"), self.domain_name)
+            WindowsHost(
+                h["hostname"],
+                h["ip"],
+                h.get("os_version", "Windows Server 2019"),
+                self.domain_name,
+                h.get("mac") or _deterministic_mac(h["hostname"]),
+            )
             for h in data.get("domain_controllers", [])
         ]
         self.file_servers = [
-            WindowsHost(h["hostname"], h["ip"], h.get("os_version", "Windows Server 2019"), self.domain_name)
+            WindowsHost(
+                h["hostname"],
+                h["ip"],
+                h.get("os_version", "Windows Server 2019"),
+                self.domain_name,
+                h.get("mac") or _deterministic_mac(h["hostname"]),
+            )
             for h in data.get("file_servers", [])
         ]
         self.dmz_servers = [
-            DMZServer(d["ip"], d["hostname"], d["role"], d.get("ports", []))
+            DMZServer(
+                d["ip"],
+                d["hostname"],
+                d["role"],
+                d.get("ports", []),
+                d.get("mac") or _deterministic_mac(d["hostname"]),
+            )
             for d in data.get("dmz_servers", [])
         ]
         self.firewalls = [
-            Firewall(f["hostname"], f["inside_ip"], f["outside_ip"], f["dmz_ip"])
+            Firewall(
+                f["hostname"],
+                f["inside_ip"],
+                f["outside_ip"],
+                f["dmz_ip"],
+                f.get("mac") or _deterministic_mac(f["hostname"]),
+            )
             for f in data.get("firewalls", [])
         ]
 
@@ -159,6 +210,12 @@ class Topology:
     def random_firewall(self) -> Firewall:
         return self.rng.choice(self.firewalls)
 
+    def random_domain_controller(self) -> WindowsHost:
+        return self.rng.choice(self.domain_controllers) if self.domain_controllers else self.random_windows_host()
+
+    def random_file_server(self) -> WindowsHost:
+        return self.rng.choice(self.file_servers) if self.file_servers else self.random_windows_host()
+
     def random_dmz_server(self, role: Optional[str] = None) -> DMZServer:
         pool = [s for s in self.dmz_servers if s.role == role] if role else self.dmz_servers
         return self.rng.choice(pool) if pool else self.rng.choice(self.dmz_servers)
@@ -184,6 +241,11 @@ class Topology:
 
     def random_process_id(self) -> int:
         return self.rng.randint(100, 65000)
+
+    def random_mac(self) -> str:
+        """Generate a fresh locally-administered MAC address (non-stable)."""
+        octets = [0x02] + [self.rng.randint(0x00, 0xFF) for _ in range(5)]
+        return ":".join(f"{b:02X}" for b in octets)
 
     def fqdn(self, hostname: str) -> str:
         return f"{hostname}.{self.dns_fqdn}"

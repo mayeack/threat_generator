@@ -380,16 +380,45 @@ Do NOT run Notable Event creation SPL via the MCP server.
 |-------|-------------|
 | `src` | Source host, IP, or user |
 | `dest` | Destination host or IP |
-| `user` | Associated user account |
+| `user` | Associated user account (destination user in most CIM models) |
+| `src_user` | Source user (the acting identity, when different from `user`) |
+| `dvc` | Device that observed or generated the event (sensor, proxy, EDR host) |
+| `host` | Splunk `host` field; useful when it differs from `src`/`dest` |
+| `orig_host` | Original host value from the raw event when normalization changes `host` |
+| `process` | Process name or command line associated with the finding |
+| `file_hash` | Hash (MD5/SHA1/SHA256) of a relevant file |
+| `url` | URL associated with the finding |
+| `signature` | Detection signature / rule ID / alert name from the source system |
+| `app` | Application associated with the event (e.g., `ssh`, `okta`, `web`) |
+| `orig_sid` | Search ID of the originating search (preserves link back to raw events) |
+| `orig_source` | Source of the originating event (index/sourcetype/file) |
 | `owner` | Analyst to assign the Notable Event to |
 | `urgency` | Override urgency (`critical`, `high`, `medium`, `low`, `informational`) |
 | `drilldown_name` | Label for the investigation drilldown link |
 | `drilldown_search` | SPL query for analyst drilldown |
 | `mitre_attack_id` | MITRE ATT&CK technique ID (e.g., `T1059.001`) |
 
+### Entity Normalization Guardrails
+
+Notable Events only correlate with ES Asset and Identity frameworks when entity
+fields are populated in the expected format. Before `| sendalert notable`:
+
+- **Preserve entities across aggregations.** If your hunt uses `| stats count by <something>`, the entity fields (`src`, `dest`, `user`) are dropped unless you carry them explicitly. Use `values()` or `earliest()`:
+  ```spl
+  | stats count values(user) as user values(src_ip) as src values(dest_ip) as dest by subdomain
+  ```
+  If an entity can legitimately have multiple values per finding, pick one with `earliest(user) as user` or collapse with `mvjoin(user, ",")`.
+- **Normalize host vs. IP.** Asset lookups typically key off hostname. If your hunt only has IPs, add `| iplocation src` or a DNS lookup, and prefer `src_nt_host` / `dest_nt_host` where Windows hostnames are expected.
+- **Separate acting and target identities.** When the event has both an actor and a target (e.g., `su`, `runas`, privilege delegation), set `src_user` for the actor and `user` for the target. Do not squash both into `user`.
+- **Preserve link to raw events.** For patterns that don't pipe directly from the hunt query (Pattern 2 ad-hoc, Pattern 5 batch), include `orig_sid`, `orig_source`, and the original event `_time` when available so analysts can pivot from Incident Review back to the underlying events.
+
 ### Pattern 1: Hunt Results to Notable Events
 
-Convert hunt query results directly into Notable Events.
+Convert hunt query results directly into Notable Events. This is the tightest
+entity-to-Notable linkage — entities propagate row-by-row from the hunt query
+itself. Review the [Entity Normalization Guardrails](#entity-normalization-guardrails)
+before applying, especially if `[hunting query logic]` contains `stats`/`tstats`
+that could drop entity fields.
 
 ```spl
 index=<index>
@@ -445,7 +474,9 @@ index=<index> earliest=-<search_window> latest=now
 
 ### Pattern 4: Notable Event with Drilldown and MITRE Context
 
-Enriched variant with investigation drilldown and ATT&CK mapping.
+Enriched variant with investigation drilldown and ATT&CK mapping. The drilldown
+below pivots on all three primary entity fields (`src`, `dest`, `user`) so an
+analyst can land on events for the exact combination that triggered the Notable.
 
 ```spl
 index=<index>
@@ -458,10 +489,25 @@ index=<index>
 | eval security_domain="[domain]"
 | eval severity="[severity]"
 | eval mitre_attack_id="[T####.###]"
-| eval drilldown_name="Investigate [entity] activity"
-| eval drilldown_search="index=<index> src=\"".src."\" earliest=-24h latest=now | table _time, src, dest, user, action"
+| eval drilldown_name="Investigate activity for src=".src." user=".user." dest=".dest
+| eval drilldown_search="index=<index> src=\"".src."\" user=\"".user."\" dest=\"".dest."\" earliest=-24h latest=now | table _time, src, src_user, user, dest, dvc, process, action, signature"
+| eval drilldown_earliest_offset="-86400"
+| eval drilldown_latest_offset="0"
 | sendalert notable
 ```
+
+**Drilldown construction notes:**
+- If any of `src`, `user`, or `dest` may be missing, guard the concatenation:
+  ```spl
+  | eval drilldown_search="index=<index> "
+      . if(isnotnull(src),  "src=\""  . src  . "\" ", "")
+      . if(isnotnull(user), "user=\"" . user . "\" ", "")
+      . if(isnotnull(dest), "dest=\"" . dest . "\" ", "")
+      . "earliest=-24h latest=now | table _time, src, user, dest, action"
+  ```
+- Provide separate drilldowns for different pivots by assigning multiple
+  `drilldown_name` / `drilldown_search` pairs — ES supports a list when supplied
+  via the Notable Event editor or via `savedsearches.conf` `action.notable.param.drilldown_searches`.
 
 ### Pattern 5: Batch Hunt Findings (One Notable per Finding)
 
@@ -529,6 +575,88 @@ create one Notable Event per distinct finding in a single paste-and-run action.
   comma-separated assignments so the row is self-contained.
 - Include `src`, `dest`, `user`, and `mitre_attack_id` where available to enrich
   the Notable Event in Incident Review.
+- When the finding came from a specific hunt search, preserve traceability by
+  also setting `orig_sid` (the originating SID), `orig_source` (index/sourcetype
+  the evidence came from), and the original event `_time`. Example:
+  ```
+  orig_sid="<hunt_search_sid>",
+  orig_source="index=<index> sourcetype=<sourcetype>",
+  _time=strptime("2026-04-22T14:30:00Z","%Y-%m-%dT%H:%M:%SZ")
+  ```
+  This lets analysts pivot from Incident Review back to the raw events, which
+  is otherwise lost in the hard-coded ad-hoc patterns.
 - Omit optional fields you do not have rather than setting them to empty strings.
 - Test with `| table` instead of `| sendalert notable` first to verify all rows
   and fields look correct before firing.
+
+### Pattern 6: Risk-Based Alerting (RBA)
+
+Modern ES deployments increasingly use Risk-Based Alerting instead of (or
+alongside) Notable Events. RBA attributes each finding to a risk object
+(entity) and accumulates risk over time, so repeated low-severity findings
+against the same entity can elevate to a Notable. Use this pattern when the
+hunt output is better expressed as "add risk to these entities" than as a
+direct escalation.
+
+**Key RBA fields:**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `risk_object` | The entity value being attributed risk | `alice`, `10.1.2.3`, `host01` |
+| `risk_object_type` | Type of entity | `user`, `system`, `other` |
+| `risk_score` | Numeric risk to add (typical range 10–100) | `40` |
+| `risk_message` | Short description surfaced in Risk Analysis | `"DNS tunneling indicators"` |
+| `threat_object` | Observed threat indicator tied to the entity | domain, hash, IP |
+| `threat_object_type` | Type of threat indicator | `domain`, `file_hash`, `ip_address`, `url`, `process_name` |
+| `annotations.mitre_attack` | MITRE technique IDs | `T1071.004` |
+
+**Single-entity-per-row RBA** (one row = one risk attribution; pick the single
+most relevant entity per row):
+
+```spl
+index=<index>
+[hunting query logic]
+| where [threshold condition]
+| rename src_ip AS src, dest_ip AS dest
+| eval risk_object=coalesce(user, src, dest)
+| eval risk_object_type=case(
+    isnotnull(user), "user",
+    isnotnull(src),  "system",
+    isnotnull(dest), "system",
+    1==1,            "other")
+| eval risk_score=40
+| eval search_name="Hunt: [Hunt Name] - [Finding Title]"
+| eval risk_message="[What was found and why it matters]"
+| eval annotations.mitre_attack="[T####.###]"
+| sendalert risk param.verbose=1
+```
+
+**Multi-entity-per-finding RBA.** To attribute risk to multiple entity types from the same finding (e.g., both
+the user and the source host), emit one row per entity by using `eval` +
+`mvexpand`:
+
+```spl
+...prior hunt pipeline producing src, user, dest...
+| eval risk_objects=mvappend(
+    "user:" . user . ":40",
+    "system:" . src  . ":30",
+    "system:" . dest . ":20")
+| mvexpand risk_objects
+| rex field=risk_objects "^(?<risk_object_type>[^:]+):(?<risk_object>[^:]+):(?<risk_score>\d+)$"
+| eval risk_score=tonumber(risk_score)
+| eval search_name="Hunt: [Hunt Name] - [Finding Title]"
+| eval risk_message="[What was found and why it matters]"
+| eval annotations.mitre_attack="[T####.###]"
+| sendalert risk param.verbose=1
+```
+
+**Notes:**
+- `sendalert risk` requires the Splunk ES Risk Analysis adaptive response
+  action to be installed (it ships with ES).
+- Prefer RBA for hunt findings that are suggestive but not immediately
+  actionable — the ES risk incident rules will promote accumulated risk to a
+  Notable automatically.
+- Combine Pattern 6 with Pattern 1/5 when a finding is both individually
+  noteworthy and should contribute to entity risk: emit the Notable with
+  `sendalert notable` and the risk attribution via an `append`-ed subsearch
+  that ends in `sendalert risk`.

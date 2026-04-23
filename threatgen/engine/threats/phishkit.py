@@ -75,7 +75,7 @@ class PhishKitCampaign(BaseCampaign):
             ),
         )
 
-        return {"dns": [dns_line], "cisco:asa": [asa_line]}
+        return {"stream:dns": [dns_line], "cisco:asa": [asa_line]}
 
     def _proxy_traffic(self, ts):
         domain = self._pick_domain()
@@ -111,7 +111,7 @@ class PhishKitCampaign(BaseCampaign):
             }
             http_lines.append(self.json_fmt.format(ts, data=data))
 
-        return {"http": http_lines}
+        return {"stream:http": http_lines}
 
     def _credential_capture(self, ts):
         domain = self._pick_domain()
@@ -150,7 +150,7 @@ class PhishKitCampaign(BaseCampaign):
             ),
         )
 
-        return {"http": [http_line], "cisco:asa": [asa_line]}
+        return {"stream:http": [http_line], "cisco:asa": [asa_line]}
 
     def _anomalous_access(self, ts):
         proxy_ip = self._pick_proxy_ip()
@@ -187,4 +187,4 @@ class PhishKitCampaign(BaseCampaign):
             message=f"Deny tcp src outside:{proxy_ip}/{self.topo.random_ephemeral_port()} dst dmz:{mail_server.ip}/443 by access-group \"outside_access_in\" [0x0, 0x0]",
         )
 
-        return {"http": http_lines, "cisco:asa": [asa_line]}
+        return {"stream:http": http_lines, "cisco:asa": [asa_line]}

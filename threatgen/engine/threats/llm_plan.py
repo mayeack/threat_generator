@@ -31,8 +31,8 @@ class LLMPlanCampaign(BaseCampaign):
         "wineventlog": WinEventLogGenerator,
         "sysmon": SysmonGenerator,
         "linux_secure": LinuxSecureGenerator,
-        "dns": DNSGenerator,
-        "http": HTTPGenerator,
+        "stream:dns": DNSGenerator,
+        "stream:http": HTTPGenerator,
         "cisco:asa": FirewallGenerator,
     }
 

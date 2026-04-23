@@ -156,7 +156,7 @@ const Dashboard = {
     if (threatEl) threatEl.textContent = data.threat_events.toLocaleString();
 
     if (Dashboard.stChart) {
-      const keys = ['wineventlog', 'sysmon', 'linux_secure', 'dns', 'http', 'cisco:asa'];
+      const keys = ['wineventlog', 'sysmon', 'linux_secure', 'stream:dns', 'stream:http', 'cisco:asa'];
       Dashboard.stChart.data.datasets[0].data = keys.map(k => data.events_by_sourcetype[k] || 0);
       Dashboard.stChart.update('none');
     }

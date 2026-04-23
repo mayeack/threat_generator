@@ -9,6 +9,11 @@ from typing import Optional
 import aiosqlite
 import yaml
 
+from threatgen.engine.config import (
+    _CANONICAL_HEC_SOURCE_MAP,
+    _CANONICAL_HEC_SOURCETYPE_MAP,
+)
+
 _DB_PATH = Path(__file__).parent.parent / "threatgen.db"
 _DEFAULT_CFG = Path(__file__).parent / "default_config.yaml"
 _db: Optional[aiosqlite.Connection] = None
@@ -50,6 +55,8 @@ async def init_db() -> None:
         await _seed_default()
 
     await _migrate_sourcetype_keys()
+    await _migrate_hec_sourcetype_map()
+    await _migrate_hec_source_map()
 
 
 # Historical internal sourcetype keys that must be renamed in stored
@@ -57,6 +64,8 @@ async def init_db() -> None:
 # Migrations are idempotent: running twice is a no-op.
 _SOURCETYPE_KEY_RENAMES: dict[str, str] = {
     "firewall": "cisco:asa",
+    "dns": "stream:dns",
+    "http": "stream:http",
 }
 
 
@@ -95,6 +104,106 @@ async def _migrate_sourcetype_keys() -> None:
                     if old_key in stm and new_key not in stm:
                         stm[new_key] = stm.pop(old_key)
                         changed = True
+
+        if changed:
+            await _db.execute(
+                "UPDATE configs SET data = ? WHERE id = ?",
+                (json.dumps(cfg), row["id"]),
+            )
+    await _db.commit()
+
+
+async def _migrate_hec_sourcetype_map() -> None:
+    """Backfill canonical Splunk sourcetype mappings into every persisted
+    config.
+
+    The ``hec.sourcetype_map`` was added after initial installs, so existing
+    databases have no mapping and therefore emit HEC events under the raw
+    internal names (e.g. ``wineventlog``, ``sysmon``) instead of the
+    canonical Splunk sourcetypes (``WinEventLog:Security``,
+    ``XmlWinEventLog:Microsoft-Windows-Sysmon/Operational``) that Exposure
+    Analytics entity templates, CIM datamodels, and every bundled hunt
+    guide expect.
+
+    This migration is additive and idempotent: it only inserts canonical
+    entries whose internal key is not already present, never overwrites a
+    user-set mapping. Safe to run on every startup.
+    """
+    assert _db is not None
+    rows = await _db.execute_fetchall("SELECT id, data FROM configs")
+    for row in rows:
+        try:
+            cfg = json.loads(row["data"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(cfg, dict):
+            continue
+
+        hec = cfg.get("hec")
+        if not isinstance(hec, dict):
+            hec = {}
+            cfg["hec"] = hec
+
+        stm = hec.get("sourcetype_map")
+        if not isinstance(stm, dict):
+            stm = {}
+            hec["sourcetype_map"] = stm
+
+        changed = False
+        for key, value in _CANONICAL_HEC_SOURCETYPE_MAP.items():
+            if key not in stm:
+                stm[key] = value
+                changed = True
+
+        if changed:
+            await _db.execute(
+                "UPDATE configs SET data = ? WHERE id = ?",
+                (json.dumps(cfg), row["id"]),
+            )
+    await _db.commit()
+
+
+async def _migrate_hec_source_map() -> None:
+    """Backfill canonical Splunk ``source`` values into every persisted
+    config.
+
+    The ``hec.source_map`` field was introduced after
+    ``hec.sourcetype_map``; existing installs therefore have no entry and
+    the HEC forwarder would fall back to ``threatgen:<family>`` paths that
+    do not match Exposure Analytics OOTB discovery source filters for the
+    Linux_sshd, WinSysmon, and WinSecurity templates (each of which
+    includes ``source="..."`` in its search).
+
+    Like the sourcetype-map migration above, this is additive and
+    idempotent: it only inserts canonical entries whose internal key is
+    not already present, never overwrites a user-set mapping. Safe to
+    run on every startup.
+    """
+    assert _db is not None
+    rows = await _db.execute_fetchall("SELECT id, data FROM configs")
+    for row in rows:
+        try:
+            cfg = json.loads(row["data"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(cfg, dict):
+            continue
+
+        hec = cfg.get("hec")
+        if not isinstance(hec, dict):
+            hec = {}
+            cfg["hec"] = hec
+
+        sm = hec.get("source_map")
+        if not isinstance(sm, dict):
+            sm = {}
+            hec["source_map"] = sm
+
+        changed = False
+        for key, value in _CANONICAL_HEC_SOURCE_MAP.items():
+            if key not in sm:
+                sm[key] = value
+                changed = True
 
         if changed:
             await _db.execute(

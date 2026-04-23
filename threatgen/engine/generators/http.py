@@ -46,7 +46,7 @@ CONTENT_TYPES = ["text/html", "application/json", "text/css", "application/javas
 
 
 class HTTPGenerator(BaseGenerator):
-    sourcetype = "http"
+    sourcetype = "stream:http"
 
     def __init__(self, topology: Topology, cache: Optional[VariationCache] = None) -> None:
         super().__init__(topology, cache)
@@ -97,16 +97,20 @@ class HTTPGenerator(BaseGenerator):
         content_type: Optional[str],
         server: Optional[str],
     ) -> list[str]:
+        dest_dmz = None
         if is_internal:
-            dmz = self.topo.random_dmz_server()
-            dest_ip = dmz.ip
-            dest_port = self.rng.choice(dmz.ports) if dmz.ports else 443
+            dest_dmz = self.topo.random_dmz_server()
+            dest_ip = dest_dmz.ip
+            dest_port = self.rng.choice(dest_dmz.ports) if dest_dmz.ports else 443
         else:
             dest_ip = self.topo.random_external_ip()
             dest_port = self.rng.choice([80, 443])
 
-        host = self.topo.random_windows_host() if self.rng.random() < 0.7 else None
-        src_ip = host.ip if host else self.topo.random_linux_host().ip
+        if self.rng.random() < 0.7:
+            host = self.topo.random_windows_host()
+        else:
+            host = self.topo.random_linux_host()
+        src_ip = host.ip
 
         bytes_in = self.rng.randint(200, 2000)
         bytes_out = self.rng.randint(500, 50000)
@@ -132,7 +136,17 @@ class HTTPGenerator(BaseGenerator):
             "http_comment": f"HTTP/1.1 {status} {STATUS_TEXT.get(status, 'OK')}",
             "server": (server or self.rng.choice(SERVERS))[:128],
             "protocol_stack": "ip:tcp:http",
+            "nt_host": host.hostname,
+            "mac": getattr(host, "mac", ""),
+            "ip": src_ip,
         }
+
+        user = self.topo.random_user()
+        data["user"] = user.username
+        data["user_id"] = user.username
+
+        if dest_dmz is not None:
+            data["dest_nt_host"] = dest_dmz.hostname
 
         line = self.fmt.format(ts, data=data)
         return [line]

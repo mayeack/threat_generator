@@ -15,7 +15,7 @@ from .client import AnthropicClient, LLMConfig
 from .planner import LLMCampaignPlanner
 from .worker import VariationWorker
 
-SOURCETYPES: list[str] = ["wineventlog", "sysmon", "linux_secure", "dns", "http", "cisco:asa"]
+SOURCETYPES: list[str] = ["wineventlog", "sysmon", "linux_secure", "stream:dns", "stream:http", "cisco:asa"]
 
 
 class LLMRuntime:

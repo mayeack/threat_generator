@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import time
@@ -13,6 +14,110 @@ from threatgen.engine.config import HECConfig
 from .client import HECClient, HECSendResult
 
 logger = logging.getLogger(__name__)
+
+# Key entity fields promoted to HEC indexed fields so Exposure Analytics
+# streaming entity discovery (which validates key presence via tstats against
+# indexed fields, not search-time KV) sees them on every event.
+_ENTITY_INDEXED_KEYS = ("nt_host", "ip", "user_id", "mac")
+
+
+# Hard-coded canonical overlays applied after the configured sourcetype_map /
+# source_map. These guarantee ThreatGen HEC events match Splunk ES Exposure
+# Analytics' out-of-the-box discovery source filters regardless of what the
+# persisted DB config contains. A stale DB row or an operator tweak cannot
+# regress us below the minimum shape EA expects.
+#
+# Keyed by the *input* sourcetype the generator passes to submit() (i.e. the
+# pre-canonical name), values are the canonical Splunk sourcetype / source
+# that the EA discovery source template expects.
+#
+# Windows Security (EA "Windows Security Auth (Kerberos)" predefined source):
+# ES 8's ``ea_network_asset_process`` data model object for this template
+# filters on **indexed** ``sourcetype=WinEventLog:Security`` (not the plain
+# ``WinEventLog`` name). Using only ``WinEventLog`` with
+# ``source=WinEventLog:Security`` matches ad-hoc searches but the predefined
+# Validate subsearch returns **zero** events, so required ``nt_host`` never
+# passes. The Security channel must therefore use the fully-qualified
+# sourcetype.
+#
+# Sysmon: OOB filters use ``sourcetype=XmlWinEventLog`` with
+# ``source=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational``; keep the plain
+# sourcetype so we do not duplicate the long ``XmlWinEventLog:...`` form.
+_CANONICAL_SOURCETYPE: dict[str, str] = {
+    "wineventlog": "WinEventLog:Security",
+    "sysmon": "XmlWinEventLog",
+    "linux_secure": "linux_secure",
+    "stream:dns": "stream:dns",
+    "stream:http": "stream:http",
+    "cisco:asa": "cisco:asa",
+}
+
+# EA discovery source filters for Linux sshd and Windows Sysmon / Security
+# include a required ``source=`` term. We override the HEC ``source`` for just
+# those three families so their OOB templates validate. The other families
+# (stream:dns, stream:http, cisco:asa) have no ``source=`` requirement, so
+# they keep the legacy ``threatgen:<family>`` path (which lets file-monitor
+# and debug tooling continue to distinguish simulated traffic).
+_CANONICAL_SOURCE: dict[str, str] = {
+    "wineventlog": "WinEventLog:Security",
+    "sysmon": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
+    "linux_secure": "/var/log/secure",
+}
+
+
+def _derive_source(default_source: str, sourcetype: str) -> str:
+    """Return the fallback HEC ``source`` field for a given sourcetype.
+
+    Used only when neither the canonical overlay nor a config-supplied
+    ``source_map`` entry applies. TA-threat_gen keys its parsing on
+    ``[source::threatgen:<family>]`` stanzas (see
+    splunk/TA-threat_gen/default/props.conf). We derive the per-family suffix
+    by normalizing the sourcetype (replacing ':' and '/' with '_' and
+    lowercasing) and appending it to the configured prefix.
+
+    Examples (with default_source='threatgen'):
+        'wineventlog'  -> 'threatgen:wineventlog'
+        'sysmon'       -> 'threatgen:sysmon'
+        'linux_secure' -> 'threatgen:linux_secure'
+        'stream:dns'   -> 'threatgen:stream_dns'
+        'stream:http'  -> 'threatgen:stream_http'
+        'cisco:asa'    -> 'threatgen:cisco_asa'
+    """
+    prefix = (default_source or "threatgen").strip() or "threatgen"
+    slug = (sourcetype or "").strip().replace(":", "_").replace("/", "_").lower()
+    if not slug:
+        return prefix
+    return f"{prefix}:{slug}"
+
+
+def _resolve_sourcetype(cfg_map: Optional[dict[str, str]], sourcetype: str) -> str:
+    """Return the canonical sourcetype. Canonical overlay wins over config map
+    wins over the raw input sourcetype."""
+    canonical = _CANONICAL_SOURCETYPE.get(sourcetype)
+    if canonical:
+        return canonical
+    if cfg_map:
+        mapped = cfg_map.get(sourcetype)
+        if mapped:
+            return mapped
+    return sourcetype
+
+
+def _resolve_source(
+    cfg_map: Optional[dict[str, str]],
+    default_source: str,
+    sourcetype: str,
+) -> str:
+    """Return the canonical HEC source. Canonical overlay wins over config map
+    wins over the ``threatgen:<family>`` fallback."""
+    canonical = _CANONICAL_SOURCE.get(sourcetype)
+    if canonical:
+        return canonical
+    if cfg_map:
+        mapped = cfg_map.get(sourcetype)
+        if mapped:
+            return mapped
+    return _derive_source(default_source, sourcetype)
 
 
 @dataclass
@@ -116,18 +221,43 @@ class HECForwarder:
         ts: datetime,
         is_threat: bool,
     ) -> dict[str, Any]:
-        mapped = self._cfg.sourcetype_map.get(sourcetype) if self._cfg.sourcetype_map else None
+        resolved_sourcetype = _resolve_sourcetype(
+            getattr(self._cfg, "sourcetype_map", None), sourcetype
+        )
+        resolved_source = _resolve_source(
+            getattr(self._cfg, "source_map", None),
+            self._cfg.default_source,
+            sourcetype,
+        )
         epoch = ts.timestamp() if ts else time.time()
         event: dict[str, Any] = {
             "time": round(epoch, 3),
             "host": self._cfg.default_host or "threatgen",
-            "source": self._cfg.default_source or "threatgen",
-            "sourcetype": mapped or sourcetype,
+            "source": resolved_source,
+            "sourcetype": resolved_sourcetype,
             "index": self._cfg.default_index or "main",
             "event": raw_line,
         }
+
+        indexed_fields: dict[str, str] = {}
+        try:
+            payload = json.loads(raw_line)
+        except (ValueError, TypeError):
+            payload = None
+        if isinstance(payload, dict):
+            for key in _ENTITY_INDEXED_KEYS:
+                value = payload.get(key)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    indexed_fields[key] = text
+
         if is_threat:
-            event["fields"] = {"threatgen_is_threat": "1"}
+            indexed_fields["threatgen_is_threat"] = "1"
+
+        if indexed_fields:
+            event["fields"] = indexed_fields
         return event
 
     async def _consume_loop(self) -> None:
