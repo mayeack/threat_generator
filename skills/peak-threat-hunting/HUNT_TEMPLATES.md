@@ -103,6 +103,18 @@ Use this template for documenting each hunt.
 |--------------|------|-------------|-----------------|
 | | | | |
 
+### Correlation Searches Generated
+One row per correlation search produced from the hunt findings (Pattern 3 in SPL_PATTERNS.md).
+
+| Correlation Search Name | Finding ID | Schedule | Search Window | Suppression Key | Suppression Period | Severity Logic | MITRE Technique(s) | Status |
+|------------------------|------------|----------|---------------|-----------------|--------------------|----------------|--------------------|--------|
+| Hunt - <name> | Finding 1 | `*/15 * * * *` | -15m | src,user | 24h | case-based (see SPL) | T####.### | Draft / Deployed / Tuning |
+
+For each correlation search above, attach the artifacts in Appendix D:
+- The detection SPL
+- The `savedsearches.conf` stanza
+- Tuning notes (threshold rationale, expected volume, known false positives)
+
 ### Gaps Identified
 | Gap Type | Description | Owner | Status |
 |----------|-------------|-------|--------|
@@ -148,6 +160,28 @@ Use this template for documenting each hunt.
 
 ### C. References
 [Links to threat intel, prior hunts, documentation]
+
+### D. Correlation Search Artifacts
+For each correlation search listed in the "Correlation Searches Generated" table:
+
+#### [Correlation Search Name]
+
+**Detection SPL:**
+```spl
+[Pattern 3a SPL — paste the full search body]
+```
+
+**`savedsearches.conf` stanza:**
+```ini
+[Hunt - <Detection Name>]
+[Pattern 3b stanza — paste the full stanza]
+```
+
+**Tuning notes:**
+- Threshold rationale: [why these values]
+- Expected daily volume: [count from hunt baseline]
+- Known false positives / exclusions: [list]
+- Review cadence: [e.g., weekly for first month, then monthly]
 ```
 
 ---

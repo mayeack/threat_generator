@@ -453,13 +453,34 @@ Manually escalate a single finding discovered during live hunt triage.
 
 ### Pattern 3: Correlation Search Template
 
-Saved-search-ready SPL to paste into Splunk as a scheduled correlation search.
+Use this pattern to convert a hunt finding into a **deployable, scheduled
+correlation search**. A correlation search is a saved search that runs on a
+cadence, evaluates the threshold logic from the hunt, and fires adaptive
+response actions (Notable Event, risk attribution, etc.) when matches occur.
+
+A complete correlation search has **three artifacts**:
+1. The detection SPL (the saved search body)
+2. The `savedsearches.conf` stanza (schedule, throttling, response actions)
+3. The deployment metadata (app, ACL, MITRE annotation)
+
+#### 3a. Detection SPL
+
+Saved-search-ready SPL. Note that scheduling, time window, and adaptive
+response actions are configured in `savedsearches.conf` (see 3b), not in the
+SPL itself — `earliest=` / `latest=` are typically omitted from the SPL and
+set via `dispatch.earliest_time` / `dispatch.latest_time`.
 
 ```spl
-index=<index> earliest=-<search_window> latest=now
+index=<index>
 [hunting query logic]
 | where [threshold condition]
 | rename src_ip AS src, dest_ip AS dest
+| stats count
+    values(user) as user
+    values(src) as src
+    values(dest) as dest
+    earliest(_time) as _time
+    by [primary_entity_or_finding_field]
 | eval rule_name="[Detection Name]"
 | eval rule_title="[Detection Name]"
 | eval rule_description="[What this detects and expected impact]"
@@ -468,9 +489,120 @@ index=<index> earliest=-<search_window> latest=now
     [high_severity_condition], "critical",
     [medium_severity_condition], "high",
     1==1, "medium")
-| table _time, src, dest, user, rule_name, rule_title, rule_description, security_domain, severity, [additional_context_fields]
-| sendalert notable
+| eval mitre_attack_id="[T####.###]"
+| eval drilldown_name="Investigate ".rule_title." for src=".src." user=".user." dest=".dest
+| eval drilldown_search="index=<index> src=\"".src."\" user=\"".user."\" dest=\"".dest."\" earliest=-24h latest=now | table _time, src, src_user, user, dest, dvc, process, action, signature"
+| table _time, src, dest, user, rule_name, rule_title, rule_description, security_domain, severity, mitre_attack_id, drilldown_name, drilldown_search, [additional_context_fields]
 ```
+
+Notes:
+- The `| sendalert notable` / `| sendalert risk` action is **not** appended to
+  the SPL itself — it is fired by the `action.notable = 1` /
+  `action.risk = 1` settings in the stanza below. Splunk runs the search,
+  then runs configured adaptive response actions on each result row.
+- Validate with `| table` before deploying. Once row counts and field values
+  look correct, save the search and apply the stanza in 3b.
+
+#### 3b. `savedsearches.conf` Stanza
+
+Place this in `$SPLUNK_HOME/etc/apps/<app>/local/savedsearches.conf` (or push
+via deployment server / Splunk Cloud ACS). Replace bracketed values with
+hunt-specific values.
+
+```ini
+[Hunt - <Detection Name>]
+search = <SPL from 3a, on a single line or escaped with line continuations>
+description = <What this detects and expected impact>
+disabled = 0
+
+# --- Scheduling ---
+enableSched = 1
+cron_schedule = */15 * * * *
+dispatch.earliest_time = -15m@m
+dispatch.latest_time   = now
+schedule_window        = auto
+realtime_schedule      = 0
+max_concurrent         = 1
+
+# --- Correlation search metadata (Splunk ES) ---
+action.correlationsearch.enabled = 1
+action.correlationsearch.label   = Hunt - <Detection Name>
+action.correlationsearch.annotations = {"mitre_attack": ["T####.###"]}
+
+# --- Adaptive response: Notable Event ---
+action.notable                       = 1
+action.notable.param.rule_title      = Hunt - <Detection Name>
+action.notable.param.rule_description = <What this detects and expected impact>
+action.notable.param.security_domain  = <access|endpoint|network|threat|identity|audit>
+action.notable.param.severity         = medium
+action.notable.param.default_owner    = unassigned
+action.notable.param.default_status   = 1
+action.notable.param.drilldown_name   = Investigate $rule_title$ for src=$src$ user=$user$ dest=$dest$
+action.notable.param.drilldown_search = index=<index> src="$src$" user="$user$" dest="$dest$" earliest=-24h latest=now | table _time, src, src_user, user, dest, dvc, process, action, signature
+action.notable.param.drilldown_earliest_offset = -86400
+action.notable.param.drilldown_latest_offset   = 0
+action.notable.param.nes_fields       = src,dest,user
+
+# --- Adaptive response: RBA (optional, in addition to or instead of notable) ---
+# action.risk                       = 1
+# action.risk.param._risk_object    = $user$
+# action.risk.param._risk_object_type = user
+# action.risk.param._risk_score     = 40
+# action.risk.param._risk_message   = <Short message, may reference $field$ tokens>
+
+# --- Throttling / suppression ---
+alert.suppress             = 1
+alert.suppress.fields      = src,dest,user
+alert.suppress.period      = 24h
+
+# --- Alerting ---
+alert.track    = 1
+alert.severity = 3
+counttype      = number of events
+quantity       = 0
+relation       = greater than
+```
+
+Field-by-field guidance:
+
+| Setting | Purpose | How to choose |
+|---------|---------|---------------|
+| `cron_schedule` + `dispatch.earliest_time` | Cadence and search window | Match the hunt's observation window: 15-minute searches for high-volume telemetry, hourly for medium, daily for low-volume. The window must be ≥ the cron interval to avoid gaps. |
+| `schedule_window = auto` | Lets Splunk shift the run time to reduce concurrency contention | Use `auto` unless the search must run at an exact time |
+| `action.correlationsearch.annotations` | Surfaces MITRE techniques in ES | Use the techniques mapped during Prepare phase |
+| `action.notable.param.severity` | Default severity in Incident Review | Override per-event in the SPL via `eval severity=case(...)` |
+| `action.notable.param.nes_fields` | Fields used by ES Notable Event de-dup | Include the entity fields you used for suppression |
+| `alert.suppress.fields` | Throttling key | Use the entity tuple that defines a "single instance" of the finding (typically `src,user` or `src,dest,user`) |
+| `alert.suppress.period` | Suppression window | Long enough to dampen noise, short enough that recurring activity is still surfaced. 1h–24h is typical. |
+| `counttype` / `quantity` / `relation` | Alert trigger | `number of events > 0` fires whenever the search returns any rows |
+
+#### 3c. From hunt SPL to correlation search — derivation procedure
+
+1. **Start from the SPL that produced the finding.** Pick the version of the
+   hunt query that, when run, returns rows for the finding and only the
+   finding (not the broader exploration query).
+2. **Replace fixed time ranges** (e.g., `earliest=-30d`) with relative ranges
+   matching the schedule cadence. Move time bounds out of the SPL into
+   `dispatch.earliest_time` / `dispatch.latest_time`.
+3. **Add an explicit threshold.** The hunt may have used "sort and review the
+   top 10". The correlation search needs a hard `where` clause that codifies
+   "what makes this a finding" (e.g., `where count > 100 AND stdev/avg < 0.1`).
+4. **Preserve entities through aggregations.** If your hunt has
+   `| stats count by domain`, the correlation search needs
+   `| stats count values(user) as user values(src_ip) as src ... by domain`
+   so `src`, `user`, `dest` survive into the Notable Event. See
+   [Entity Normalization Guardrails](#entity-normalization-guardrails).
+5. **Append the Pattern 3 evaluation tail** (`rule_name`, `rule_title`,
+   `rule_description`, `security_domain`, `severity`, `mitre_attack_id`,
+   `drilldown_*`).
+6. **Test with `| table`** first. Verify rows match the expected findings and
+   that all required fields are populated.
+7. **Configure throttling** based on observed entity cardinality during the
+   hunt: if 50 unique sources were involved in a noisy finding, suppression
+   on `src` for 24h prevents 50× alert storms.
+8. **Tune the schedule** on the first week of deployment: review false
+   positives, adjust the threshold or suppression, and document the tuning
+   in the hunt report.
 
 ### Pattern 4: Notable Event with Drilldown and MITRE Context
 

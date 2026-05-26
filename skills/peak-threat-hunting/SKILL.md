@@ -16,11 +16,49 @@ When a user requests a threat hunt:
    - **Baseline**: Understanding normal to find anomalies (e.g., "Baseline our firewall logs")
    - **Model-Assisted (M-ATH)**: Using ML/statistical models (e.g., "Find anomalous login patterns")
 
-2. **Follow the PEAK phases**: Prepare → Execute → Act
+2. **ALWAYS Follow the PEAK phases**: Prepare → Execute → Act
 
 3. **Run SPL queries** using the Splunk MCP server's `run_splunk_query` tool
 
 4. **Track progress** using the hunt checklist for the selected type
+
+---
+
+## MANDATORY: Plan Presentation Format
+
+Whenever you present a plan to the user — whether it is the initial hunt plan, a revised plan after scoping, a hand-off plan, or any intermediate step labeled as a "plan" — you MUST ALWAYS structure it under the three PEAK phases:
+
+1. **Prepare** →
+2. **Execute** →
+3. **Act**
+
+### Rules for plan presentation
+
+- The plan MUST use these three top-level headings (or numbered sections) in this exact order: `1. Prepare`, `2. Execute`, `3. Act`. Do not rename, merge, reorder, or omit any phase.
+- Every actionable item in the plan MUST live under exactly one of the three phases. If an item does not fit cleanly into one phase, re-scope it until it does.
+- If a phase has nothing planned yet, still include the heading and write `_(to be defined after prior phase completes)_` rather than dropping the phase.
+- The arrow notation (`Prepare → Execute → Act`) MUST appear at the top of the plan as a one-line summary so the user immediately sees the PEAK flow.
+- This rule applies to ALL hunt types — Hypothesis-Driven, Baseline, and Model-Assisted (M-ATH) — and to any sub-plans (e.g., a plan for just generating correlation searches still belongs under `Act`).
+- Status updates, progress reports, and check-ins on an in-flight hunt MUST also reference which PEAK phase the work is currently in.
+
+### Required plan template
+
+```
+Plan: <hunt title>
+Flow: 1. Prepare → 2. Execute → 3. Act
+
+1. Prepare
+   - <preparation items: topic, research, hypothesis, ABLE, data sources>
+
+2. Execute
+   - <execution items: gather, pre-process, analyze, refine, escalate>
+
+3. Act
+   - <action items: preserve, document, detections, correlation searches,
+     notable events, dashboards, communicate>
+```
+
+If you catch yourself drafting a plan that is not in this format, stop and re-render it under the three PEAK phases before sending it to the user.
 
 ## Hunt Type Selection
 
@@ -126,6 +164,7 @@ Hunt Completion Checklist:
 - [ ] Hunt preserved (queries, data, findings)
 - [ ] Findings documented
 - [ ] Detections created/updated
+- [ ] Correlation search SPL generated (one per finding, with savedsearches.conf stanza)
 - [ ] Notable Event SPL generated (if applicable)
 - [ ] Dashboard created (if applicable)
 - [ ] New hunt ideas logged
@@ -138,15 +177,43 @@ Hunt Completion Checklist:
 
 **3. Create Detections**: Convert findings to automated detection (see Detection Hierarchy below)
 
-**4. Generate Notable Event SPL**: When the hunt produces confirmed or high-confidence findings that warrant SOC triage, generate SPL to create Notable Events in Splunk ES using the patterns from [SPL_PATTERNS.md](SPL_PATTERNS.md). Present the SPL as copyable output for the user to paste into Splunk. Do NOT run Notable Event creation queries via the MCP server.
+**4. Generate Correlation Search(es) for Findings**: For every confirmed finding that should be detected on an ongoing basis, generate a deployable correlation search using **Pattern 3 (Correlation Search Template)** in [SPL_PATTERNS.md](SPL_PATTERNS.md). Each finding produces one correlation search. Present each correlation search as copyable output that includes:
+
+1. **The detection SPL** — the hunt query, generalized so it runs as a scheduled search (parameterized time window, threshold expressed as `where` clause, entity fields preserved, output rows limited to actionable findings).
+2. **A `savedsearches.conf` stanza** — schedule (`cron_schedule`), search window (`dispatch.earliest_time` / `dispatch.latest_time`), correlation search metadata (`action.correlationsearch.enabled`, `action.correlationsearch.label`), and adaptive response actions (`action.notable`, `action.risk`, etc.).
+3. **Throttling/suppression configuration** — `alert.suppress`, `alert.suppress.fields`, and `alert.suppress.period` keyed off the entity fields (`src`, `dest`, `user`) so the same entity does not trigger repeatedly within the suppression window.
+4. **Severity logic** — a `case()` expression that maps observed values back to `severity` and `urgency` based on thresholds discovered during the hunt.
+5. **MITRE ATT&CK annotation** — `action.notable.param.mitre_attack_id` (and/or `annotations.mitre_attack` for RBA) populated from the techniques mapped during the Prepare phase.
+6. **Drilldown** — a drilldown search (Pattern 4) that pivots on `src`, `user`, and `dest` so analysts can land on the underlying events.
+
+**Derivation procedure (hunt SPL → correlation search):**
+1. Start from the SPL that produced the finding during Execute.
+2. Replace any hard-coded time range with `earliest=-<search_window>` / `latest=now` matching the desired schedule cadence (typically the hunt's own observation window or shorter).
+3. Add an explicit `where` threshold so only events that match the finding's criteria are returned.
+4. Carry entity fields through any `stats`/`tstats` aggregations using `values()` / `earliest()` (see Entity Normalization Guardrails in [SPL_PATTERNS.md](SPL_PATTERNS.md)).
+5. Append the Pattern 3 evaluation tail (`rule_name`, `rule_title`, `rule_description`, `security_domain`, `severity`, `mitre_attack_id`).
+6. Test with `| table` first; only switch to `| sendalert notable` / `| sendalert risk` once row counts and field values look correct.
+
+Do NOT run correlation search SPL via the MCP server — the user deploys it as a saved search.
+
+**5. Generate Notable Event SPL**: When the hunt produces confirmed or high-confidence findings that warrant immediate SOC triage (rather than scheduled detection), generate SPL to create Notable Events in Splunk ES using the patterns from [SPL_PATTERNS.md](SPL_PATTERNS.md). Present the SPL as copyable output for the user to paste into Splunk. Do NOT run Notable Event creation queries via the MCP server.
 - **For multiple findings (preferred):** use the batch pattern (Pattern 5: chained `makeresults` + `append` + single `sendalert notable`) to produce ONE Notable Event per finding in a single SPL command. This is the default when a hunt yields two or more findings.
 - For one-off escalation of a specific finding, use the ad-hoc pattern (Pattern 2: `makeresults` + `sendalert notable`)
-- For ongoing detection, use the correlation search template (Pattern 3) with appropriate thresholds and scheduling window
 - For enriched pivots, use Pattern 4 (drilldown + MITRE), which pivots on `src`, `user`, and `dest` together
 - **For risk attribution (suggestive-but-not-actionable findings):** use the RBA pattern (Pattern 6: `sendalert risk` with `risk_object`, `risk_object_type`, `risk_score`) so findings accumulate risk per entity and ES promotes them to Notables when risk thresholds are crossed. Combine with Pattern 1/5 when a finding should both raise a Notable and contribute to entity risk.
 - **Entity fidelity:** before any `sendalert notable` or `sendalert risk`, verify the pipeline preserves entity fields (`src`, `dest`, `user`, and where applicable `src_user`, `dvc`, `process`, `file_hash`). See the Entity Normalization Guardrails section in [SPL_PATTERNS.md](SPL_PATTERNS.md) for aggregation, host-vs-IP, and actor-vs-target handling.
 
-**5. Create Dashboard**: If the hunt produced findings that warrant ongoing monitoring or analyst review (Detection Hierarchy Level 2), invoke the `splunk-dashboard-studio` skill. Pass it:
+**Notable Event vs. Correlation Search — when to use which:**
+
+| Use Notable Event SPL (Patterns 1, 2, 5) | Use Correlation Search (Pattern 3) |
+|------------------------------------------|------------------------------------|
+| One-time escalation of findings already in hand | Ongoing scheduled detection of the same behavior |
+| Hunt is complete and you want findings into Incident Review now | You want future occurrences to be caught automatically |
+| Run-once SPL the user pastes into Splunk | Saved search deployed with `savedsearches.conf` |
+
+In most hunts you will produce **both**: Notable Event SPL for the findings you already confirmed, and a correlation search so that future instances of the same pattern are caught automatically.
+
+**6. Create Dashboard**: If the hunt produced findings that warrant ongoing monitoring or analyst review (Detection Hierarchy Level 2), invoke the `splunk-dashboard-studio` skill. Pass it:
 
 - All SPL queries used during the Execute phase (both successful and refined versions)
 - The hunt hypothesis and ABLE scope (Actor, Behavior, Location, Evidence)
@@ -157,7 +224,7 @@ Hunt Completion Checklist:
 
 The subagent will design the layout, select appropriate visualizations, assemble valid Simple XML, and optionally deploy and test the dashboard on the Splunk instance.
 
-**6. Communicate**: Share with SOC, IR, detection engineering teams
+**7. Communicate**: Share with SOC, IR, detection engineering teams. Include the generated correlation search stanzas in the handoff to the detection engineering team.
 
 ---
 
@@ -236,6 +303,8 @@ Document baseline including:
 - Known benign outliers
 - Detection candidates
 
+**Generate Correlation Search(es) from Baseline Deviations**: For each detection candidate where the baseline produced a concrete threshold (e.g., "process X typically runs <50 times/day per host", "field Y has cardinality <10 per user"), generate a correlation search using **Pattern 3** in [SPL_PATTERNS.md](SPL_PATTERNS.md). The correlation search compares live data against the baseline thresholds and fires when deviations exceed the documented bounds. Include the same six artifacts described in the hypothesis-driven Phase 3 step 4 (detection SPL, `savedsearches.conf` stanza, throttling, severity logic, MITRE annotation, drilldown). Add the known-benign outliers from the baseline as exclusions in the search SPL so they do not generate false positives.
+
 **Create Baseline Dashboard**: Baseline hunts are especially well suited for dashboards. Invoke the `splunk-dashboard-studio` skill to create a baseline monitoring dashboard. Pass it:
 - The distribution queries (categorical, numeric, cardinality)
 - The data dictionary fields and their characteristics
@@ -300,6 +369,13 @@ Same as hypothesis-driven, but also:
 - Document model parameters and accuracy
 - Consider model-based alerting
 - Invoke the `splunk-dashboard-studio` skill to create a model monitoring dashboard that tracks model outputs, anomaly scores, and prediction accuracy over time
+
+**Correlation searches for M-ATH:** When the model produces a score or anomaly flag (e.g., `anomaly_score`, `isanomalous`, cluster outlier label), generate the correlation search around the model's scoring SPL rather than the raw hunt query. The detection SPL in Pattern 3 should:
+- Apply the trained model via `| apply <model_name>` (MLTK) or re-run the scoring SPL inline
+- Threshold on the model output (e.g., `where anomaly_score > 0.85` or `where isanomalous=1`)
+- Carry entity fields through the model output so Notable Events / risk attribution work
+- Set `severity` based on the score band (e.g., `case(anomaly_score > 0.95, "high", anomaly_score > 0.85, "medium", 1==1, "low")`)
+- Schedule the correlation search no more frequently than the model's scoring cadence allows
 
 ---
 
