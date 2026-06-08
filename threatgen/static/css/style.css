@@ -664,6 +664,194 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--accent);
 }
 
+/* Per-destination HEC card. ``.hec-card`` is the outer container the
+   JS scopes its per-destination DOM queries to; ``.hec-subcard`` is
+   the inner section (Connection / Token / Performance / Stats / Health)
+   that previously used the global ``.card`` class. We give the outer
+   card a distinct border so multiple destinations are visually
+   separable in the destinations list. */
+.hec-card {
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px 18px;
+  background: var(--bg-secondary, var(--bg-tertiary));
+}
+
+.hec-card + .hec-card {
+  margin-top: 0;
+}
+
+/* Chrome-style tab strip for HEC destinations. Each tab maps to one
+   destination panel (``.hec-panel``); only the active panel is shown.
+   The trailing ``.hec-tab-add`` button creates a new destination. */
+.hec-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.hec-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  bottom: -1px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.hec-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.hec-tab.active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+.hec-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.hec-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hec-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--text-muted);
+}
+
+.hec-tab-dot.on { background: #3fb950; }
+.hec-tab-dot.off { background: var(--text-muted); }
+
+.hec-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+
+.hec-tab-close:hover {
+  background: var(--danger, #f85149);
+  color: #fff;
+}
+
+.hec-tab-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  bottom: -1px;
+  position: relative;
+}
+
+.hec-tab-add:hover {
+  color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+/* The active panel reuses the existing ``.hec-card`` styling; we drop
+   its bottom margin since the tab strip already provides separation. */
+.hec-panel > .hec-card {
+  margin-bottom: 0;
+}
+
+.hec-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hec-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hec-card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hec-card-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.hec-subcard {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+
+.hec-subcard:first-child {
+  margin-top: 0;
+}
+
+/* Inside the grid layouts, the subcard inherits the grid cell. */
+.grid-2 > .hec-subcard,
+.grid-4 > .hec-subcard {
+  margin-top: 0;
+}
+
 /* Settings page */
 .settings-section {
   margin-top: 28px;

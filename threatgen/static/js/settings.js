@@ -22,7 +22,7 @@
  *    server-side with Pydantic (codeguard input validation).
  */
 const Settings = {
-  hecConfig: null,
+  hecDestinations: [],
   llmConfig: null,
   llmStatus: null,
   sourcetypeConfig: null,
@@ -35,12 +35,10 @@ const Settings = {
 
     const llm = Settings.llmConfig || {};
     const llmStatus = Settings.llmStatus || {};
-    const hec = Settings.hecConfig || {};
+    const destinations = Settings.hecDestinations || [];
     const sts = Settings.sourcetypeConfig || {};
-    const map = hec.sourcetype_map || {};
 
     const llmKeyBadge = Settings._llmKeyBadge(llm);
-    const hecTokenBadge = Settings._hecTokenBadge(hec);
 
     const llmStateClass = Settings._llmStateClass(llm, llmStatus);
     const llmStateLabel = Settings._llmStateLabel(llm, llmStatus);
@@ -290,225 +288,51 @@ const Settings = {
               <div>
                 <h2 class="settings-section-title">Splunk HEC Forwarding</h2>
                 <div class="settings-section-sub">
-                  Streams generated events directly to a Splunk HTTP Event
-                  Collector endpoint. TLS is required; the token lives only in
-                  the <code>SPLUNK_HEC_TOKEN</code> environment variable.
+                  Streams generated events to one or more Splunk HTTP Event
+                  Collector endpoints. Every generated event is fanned out to
+                  every enabled destination. Tokens are never written to
+                  <code>threatgen.db</code> and never returned by any API.
                 </div>
               </div>
             </div>
             <div class="btn-group">
-              <button class="btn" id="hec-btn-test" onclick="Settings.testHEC()">Test Connection</button>
-              <button class="btn btn-primary" onclick="Settings.saveHEC()">Save HEC Settings</button>
+              <button class="btn btn-primary"
+                id="hec-btn-add"
+                onclick="Settings.addHECDestination()"
+                title="Add another Splunk HEC destination">+ Add Destination</button>
             </div>
           </div>
 
           <div class="settings-section-body" id="settings-hec-body">
-          <div id="hec-test-result" class="hec-test-result hec-test-result-top"></div>
-          <div class="grid-2">
-            <div class="card">
-              <div class="card-title">Connection</div>
-              <div class="form-group">
-                <label class="toggle-wrap">
-                  <span class="form-label" style="margin:0">Enable forwarding</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="hec-enabled" ${hec.enabled ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                  </label>
-                </label>
-              </div>
-              <div class="form-group">
-                <label class="form-label">HEC URL (Splunk Cloud)</label>
-                <input type="text" class="form-input" id="hec-url"
-                  value="${Settings._attr(hec.url || '')}"
-                  maxlength="512"
-                  placeholder="https://http-inputs-&lt;stack&gt;.splunkcloud.com:443">
-                <div class="form-help">Must start with <code>https://</code>. The <code>/services/collector/event</code> path is appended automatically if omitted.</div>
-              </div>
-              <div class="form-group">
-                <label class="toggle-wrap">
-                  <span class="form-label" style="margin:0">Verify TLS certificate</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="hec-verify-tls" ${hec.verify_tls !== false ? 'checked' : ''}>
-                    <span class="toggle-slider"></span>
-                  </label>
-                </label>
-                <div class="form-help" id="hec-tls-warn" style="display:${hec.verify_tls === false ? 'block' : 'none'};color:var(--danger)">
-                  Warning: disabling TLS verification is unsafe and should only be used in isolated development environments.
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Default Index</label>
-                <input type="text" class="form-input" id="hec-index" value="${Settings._attr(hec.default_index || 'main')}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Default Source</label>
-                <input type="text" class="form-input" id="hec-source" value="${Settings._attr(hec.default_source || 'threatgen')}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Default Host</label>
-                <input type="text" class="form-input" id="hec-host" value="${Settings._attr(hec.default_host || 'threatgen')}">
-              </div>
+            <div id="hec-destinations-list">
+              ${Settings._hecTabbedHTML(destinations, sts)}
             </div>
-
-            <div class="card">
-              <div class="card-title">HEC Token</div>
-              <div class="form-group">
-                <div id="hec-token-badge-slot">${hecTokenBadge}</div>
-              </div>
-
-              <div class="form-help">
-                Precedence: the <code>SPLUNK_HEC_TOKEN</code> environment
-                variable on the server always wins. Otherwise, a token stored
-                in the OS keychain is used. The token is <strong>never</strong>
-                written to <code>threatgen.db</code> or
-                <code>default_config.yaml</code>, and is never returned by any
-                API response.
-              </div>
-
-              <div id="hec-key-form" style="display:${hec.token_source === 'env' ? 'none' : 'block'}">
-                <div class="form-group">
-                  <label class="form-label" for="hec-token-input">
-                    ${hec.token_source === 'keychain' ? 'Replace stored token' : 'Set HEC token'}
-                  </label>
-                  <div class="llm-key-row">
-                    <input type="password"
-                      class="form-input"
-                      id="hec-token-input"
-                      autocomplete="off"
-                      spellcheck="false"
-                      maxlength="36"
-                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                    <button type="button" class="btn" id="hec-token-toggle"
-                      onclick="Settings.toggleHECTokenVisibility()"
-                      title="Show/hide">Show</button>
-                  </div>
-                  <div class="form-help">
-                    Token is sent over the loopback interface only, stored in
-                    the OS secret store, and cleared from the input field after
-                    saving.
-                  </div>
-                </div>
-                <div class="btn-group">
-                  <button type="button" class="btn btn-primary"
-                    onclick="Settings.saveHECKey()">Save Token</button>
-                  <button type="button" class="btn"
-                    id="hec-key-clear-btn"
-                    style="display:${hec.token_source === 'keychain' ? 'inline-flex' : 'none'}"
-                    onclick="Settings.clearHECKey()">Clear Stored Token</button>
-                </div>
-              </div>
-
-              <div id="hec-key-env-note"
-                class="form-help"
-                style="display:${hec.token_source === 'env' ? 'block' : 'none'};margin-top:8px">
-                The token is currently provided via <code>SPLUNK_HEC_TOKEN</code>.
-                Unset that environment variable and restart ThreatGen if you
-                want to manage the token from the UI.
-              </div>
-
-              <div id="hec-key-result" class="hec-test-result" style="margin-top:10px"></div>
-
-              <div class="card-title" style="margin-top:16px">Performance</div>
-              <div class="form-group">
-                <label class="form-label">Batch Size</label>
-                <input type="number" class="form-input" id="hec-batch-size" min="1" max="10000" value="${Settings._num(hec.batch_size, 100)}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Flush Interval (seconds)</label>
-                <input type="number" class="form-input" id="hec-flush" min="0.1" max="300" step="0.1" value="${Settings._num(hec.flush_interval_s, 2.0)}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Queue Capacity</label>
-                <input type="number" class="form-input" id="hec-queue-max" min="1" max="1000000" value="${Settings._num(hec.queue_max, 10000)}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Request Timeout (seconds)</label>
-                <input type="number" class="form-input" id="hec-timeout" min="1" max="300" step="0.5" value="${Settings._num(hec.request_timeout_s, 10.0)}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Max Retries</label>
-                <input type="number" class="form-input" id="hec-retries" min="0" max="10" value="${Settings._num(hec.max_retries, 3)}">
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Sourcetype Mapping</div>
-            <div class="form-help" style="margin-bottom:10px">
-              Optional: override the Splunk <code>sourcetype</code> sent for each
-              generator. Leave a row blank to send the generator's native name.
-            </div>
-            <table class="data-table">
-              <thead>
-                <tr><th>Generator</th><th>Splunk sourcetype override</th></tr>
-              </thead>
-              <tbody>
-                ${Object.keys(sts).sort().map(name => `
-                  <tr>
-                    <td>${Settings._attr(name)}</td>
-                    <td>
-                      <input type="text" class="hec-st-map" data-st="${Settings._attr(name)}"
-                        value="${Settings._attr(map[name] || '')}"
-                        placeholder="(use &quot;${Settings._attr(name)}&quot;)">
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="grid-4">
-            <div class="card">
-              <div class="card-title">Events Sent</div>
-              <div class="stat-value success" id="hec-sent">0</div>
-              <div class="stat-label">Total forwarded</div>
-            </div>
-            <div class="card">
-              <div class="card-title">Events Failed</div>
-              <div class="stat-value danger" id="hec-failed">0</div>
-              <div class="stat-label">After all retries</div>
-            </div>
-            <div class="card">
-              <div class="card-title">Events Dropped</div>
-              <div class="stat-value" id="hec-dropped">0</div>
-              <div class="stat-label">Queue overflow</div>
-            </div>
-            <div class="card">
-              <div class="card-title">Queue</div>
-              <div class="stat-value" id="hec-queue">0 / 0</div>
-              <div class="stat-label">Depth / capacity</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Forwarder Health</div>
-            <table class="data-table">
-              <tbody>
-                <tr><td style="width:220px">State</td><td id="hec-state">unknown</td></tr>
-                <tr><td>Token detected in environment</td><td id="hec-token">—</td></tr>
-                <tr><td>Last success</td><td id="hec-last-success">—</td></tr>
-                <tr><td>Last success latency</td><td id="hec-last-latency">—</td></tr>
-                <tr><td>Last error</td><td id="hec-last-error">—</td></tr>
-                <tr><td>Last error time</td><td id="hec-last-error-at">—</td></tr>
-              </tbody>
-            </table>
-          </div>
-
           </div>
         </section>
       </div>
     `;
 
-    const verifyToggle = document.getElementById('hec-verify-tls');
-    if (verifyToggle) {
-      verifyToggle.addEventListener('change', () => {
-        const warn = document.getElementById('hec-tls-warn');
-        if (warn) warn.style.display = verifyToggle.checked ? 'none' : 'block';
-      });
-    }
+    Settings._bindHECCardListeners();
 
     await Settings._refreshRuntime();
     Settings.pollInterval = setInterval(Settings._refreshRuntime, 2500);
+  },
+
+  _bindHECCardListeners() {
+    // Re-attach per-card listeners after any re-render. We listen on
+    // the destinations list root so destinations added later still
+    // pick up the warning toggle behavior.
+    document.querySelectorAll('.hec-card').forEach(card => {
+      const verify = card.querySelector('.hec-verify-tls');
+      const warn = card.querySelector('.hec-tls-warn');
+      if (verify && warn) {
+        const update = () => {
+          warn.style.display = verify.checked ? 'none' : 'block';
+        };
+        verify.removeEventListener('change', update);
+        verify.addEventListener('change', update);
+      }
+    });
   },
 
   cleanup() {
@@ -559,8 +383,14 @@ const Settings = {
     catch (_) { Settings.llmConfig = {}; }
     try { Settings.llmStatus = await App.api('GET', '/api/llm/status'); }
     catch (_) { Settings.llmStatus = {}; }
-    try { Settings.hecConfig = await App.api('GET', '/api/hec/config'); }
-    catch (_) { Settings.hecConfig = {}; }
+    try {
+      const resp = await App.api('GET', '/api/hec/destinations');
+      Settings.hecDestinations = (resp && Array.isArray(resp.destinations))
+        ? resp.destinations
+        : [];
+    } catch (_) {
+      Settings.hecDestinations = [];
+    }
     try {
       const full = await App.api('GET', '/api/config');
       Settings.sourcetypeConfig = (full && full.sourcetypes) || {};
@@ -577,8 +407,9 @@ const Settings = {
     } catch (_) {}
 
     try {
-      const s = await App.api('GET', '/api/hec/stats');
-      if (s) Settings._paintHECStats(s);
+      const resp = await App.api('GET', '/api/hec/stats');
+      const list = (resp && Array.isArray(resp.destinations)) ? resp.destinations : [];
+      list.forEach(s => Settings._paintHECStats(s));
     } catch (_) {}
   },
 
@@ -615,20 +446,26 @@ const Settings = {
   },
 
   _paintHECStats(s) {
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set('hec-sent', s.events_sent || 0);
-    set('hec-failed', s.events_failed || 0);
-    set('hec-dropped', s.events_dropped || 0);
-    set('hec-queue', `${s.queue_depth || 0} / ${s.queue_capacity || 0}`);
+    if (!s || !s.id) return;
+    const setIn = (root, sel, v) => {
+      const el = root.querySelector(sel);
+      if (el) el.textContent = v;
+    };
+    const card = document.querySelector(`.hec-card[data-dest-id="${CSS.escape(s.id)}"]`);
+    if (!card) return;
+    setIn(card, '.hec-sent', s.events_sent || 0);
+    setIn(card, '.hec-failed', s.events_failed || 0);
+    setIn(card, '.hec-dropped', s.events_dropped || 0);
+    setIn(card, '.hec-queue', `${s.queue_depth || 0} / ${s.queue_capacity || 0}`);
     let state = 'disabled';
     if (s.enabled && s.running) state = 'running';
     else if (s.enabled && !s.running) state = 'configured (not running)';
-    set('hec-state', state);
-    set('hec-token', s.token_present ? 'yes' : 'no');
-    set('hec-last-success', s.last_success_at || '—');
-    set('hec-last-latency', s.last_latency_ms != null ? `${s.last_latency_ms} ms` : '—');
-    set('hec-last-error', s.last_error || '—');
-    set('hec-last-error-at', s.last_error_at || '—');
+    setIn(card, '.hec-state', state);
+    setIn(card, '.hec-token', s.token_present ? 'yes' : 'no');
+    setIn(card, '.hec-last-success', s.last_success_at || '—');
+    setIn(card, '.hec-last-latency', s.last_latency_ms != null ? `${s.last_latency_ms} ms` : '—');
+    setIn(card, '.hec-last-error', s.last_error || '—');
+    setIn(card, '.hec-last-error-at', s.last_error_at || '—');
   },
 
   _llmStateClass(llm, status) {
@@ -838,9 +675,9 @@ const Settings = {
     await Settings._refreshRuntime();
   },
 
-  _hecTokenBadge(hec) {
-    const src = (hec && hec.token_source)
-      || (hec && (hec.token_present || hec.token_env_set) ? 'env' : 'none');
+  _hecTokenBadge(dest) {
+    const src = (dest && dest.token_source)
+      || (dest && (dest.token_present || dest.token_env_set) ? 'env' : 'none');
     if (src === 'env') {
       return `<span class="hec-badge hec-badge-ok">Token active (environment)</span>`;
     }
@@ -850,9 +687,11 @@ const Settings = {
     return `<span class="hec-badge hec-badge-warn">No HEC token configured</span>`;
   },
 
-  toggleHECTokenVisibility() {
-    const input = document.getElementById('hec-token-input');
-    const btn = document.getElementById('hec-token-toggle');
+  toggleHECTokenVisibility(destId) {
+    const card = Settings._hecCard(destId);
+    if (!card) return;
+    const input = card.querySelector('.hec-token-input');
+    const btn = card.querySelector('.hec-token-toggle');
     if (!input || !btn) return;
     if (input.type === 'password') {
       input.type = 'text';
@@ -863,36 +702,41 @@ const Settings = {
     }
   },
 
-  async saveHECKey() {
-    const input = document.getElementById('hec-token-input');
+  async saveHECKey(destId) {
+    const card = Settings._hecCard(destId);
+    if (!card) return;
+    const input = card.querySelector('.hec-token-input');
     if (!input) return;
     const raw = input.value || '';
     const token = raw.trim();
     if (!token) {
-      Settings._renderResult('hec-key-result', false, 'HEC token is required.');
+      Settings._showHECKeyResult(destId, false, 'HEC token is required.');
       App.toast('HEC token is required.', 'err');
       return;
     }
     // Client-side shape check mirrors server validation (UUID).
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(token)) {
       const msg = 'Token does not look like a Splunk HEC token (expected UUID: 8-4-4-4-12 hex).';
-      Settings._renderResult('hec-key-result', false, msg);
+      Settings._showHECKeyResult(destId, false, msg);
       App.toast(msg, 'err');
       return;
     }
 
     try {
-      const res = await fetch('/api/hec/key', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
+      const res = await fetch(
+        `/api/hec/destinations/${encodeURIComponent(destId)}/key`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        },
+      );
       // Best-effort wipe of the DOM value regardless of outcome.
       input.value = '';
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const detail = Settings._describeError(body, res.status);
-        Settings._renderResult('hec-key-result', false, `Save failed: ${detail}`);
+        Settings._showHECKeyResult(destId, false, `Save failed: ${detail}`);
         App.toast(`HEC token save failed: ${detail}`, 'err');
         return;
       }
@@ -900,59 +744,76 @@ const Settings = {
       const msg = info.source === 'keychain'
         ? 'Token stored in OS keychain. Forwarder reconfigured.'
         : 'Token saved. Forwarder reconfigured.';
-      Settings._renderResult('hec-key-result', true, msg);
+      Settings._showHECKeyResult(destId, true, msg);
       App.toast('HEC token saved', 'ok');
-      await Settings._reloadHECKeyUi();
+      await Settings._reloadHECKeyUi(destId);
     } catch (_) {
       input.value = '';
-      Settings._renderResult('hec-key-result', false, 'Save failed (network error).');
+      Settings._showHECKeyResult(destId, false, 'Save failed (network error).');
       App.toast('Save failed (network error)', 'err');
     }
   },
 
-  async clearHECKey() {
-    if (!window.confirm('Remove the stored Splunk HEC token from the OS keychain?')) {
+  async clearHECKey(destId) {
+    if (!window.confirm('Remove the stored Splunk HEC token for this destination from the OS keychain?')) {
       return;
     }
     try {
-      const res = await fetch('/api/hec/key', { method: 'DELETE' });
+      const res = await fetch(
+        `/api/hec/destinations/${encodeURIComponent(destId)}/key`,
+        { method: 'DELETE' },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const detail = Settings._describeError(body, res.status);
-        Settings._renderResult('hec-key-result', false, `Clear failed: ${detail}`);
+        Settings._showHECKeyResult(destId, false, `Clear failed: ${detail}`);
         App.toast(`Clear failed: ${detail}`, 'err');
         return;
       }
       const info = await res.json();
       const msg = info.removed ? 'Stored token cleared.' : 'No token was stored.';
-      Settings._renderResult('hec-key-result', true, msg);
+      Settings._showHECKeyResult(destId, true, msg);
       App.toast(msg, 'ok');
-      await Settings._reloadHECKeyUi();
+      await Settings._reloadHECKeyUi(destId);
     } catch (_) {
-      Settings._renderResult('hec-key-result', false, 'Clear failed (network error).');
+      Settings._showHECKeyResult(destId, false, 'Clear failed (network error).');
       App.toast('Clear failed (network error)', 'err');
     }
   },
 
-  async _reloadHECKeyUi() {
+  async _reloadHECKeyUi(destId) {
+    let fresh = null;
     try {
-      Settings.hecConfig = await App.api('GET', '/api/hec/config');
+      fresh = await App.api('GET', `/api/hec/destinations/${encodeURIComponent(destId)}`);
     } catch (_) { /* keep stale config */ }
-    const hec = Settings.hecConfig || {};
+    if (fresh) {
+      const idx = Settings.hecDestinations.findIndex(d => d.id === destId);
+      if (idx >= 0) Settings.hecDestinations[idx] = fresh;
+    }
 
-    const badgeSlot = document.getElementById('hec-token-badge-slot');
-    if (badgeSlot) badgeSlot.innerHTML = Settings._hecTokenBadge(hec);
+    const dest = fresh
+      || Settings.hecDestinations.find(d => d.id === destId)
+      || {};
+    const card = Settings._hecCard(destId);
+    if (!card) return;
 
-    const form = document.getElementById('hec-key-form');
-    const envNote = document.getElementById('hec-key-env-note');
-    const clearBtn = document.getElementById('hec-key-clear-btn');
-    const label = document.querySelector('label[for="hec-token-input"]');
+    const badgeSlot = card.querySelector('.hec-token-badge-slot');
+    if (badgeSlot) badgeSlot.innerHTML = Settings._hecTokenBadge(dest);
 
-    if (form) form.style.display = hec.token_source === 'env' ? 'none' : 'block';
-    if (envNote) envNote.style.display = hec.token_source === 'env' ? 'block' : 'none';
-    if (clearBtn) clearBtn.style.display = hec.token_source === 'keychain' ? 'inline-flex' : 'none';
+    const form = card.querySelector('.hec-key-form');
+    const envNote = card.querySelector('.hec-key-env-note');
+    const clearBtn = card.querySelector('.hec-key-clear-btn');
+    const label = card.querySelector('.hec-token-label');
+    const envVarSpan = card.querySelector('.hec-env-var-name');
+
+    if (form) form.style.display = dest.token_source === 'env' ? 'none' : 'block';
+    if (envNote) envNote.style.display = dest.token_source === 'env' ? 'block' : 'none';
+    if (clearBtn) clearBtn.style.display = dest.token_source === 'keychain' ? 'inline-flex' : 'none';
     if (label) {
-      label.textContent = hec.token_source === 'keychain' ? 'Replace stored token' : 'Set HEC token';
+      label.textContent = dest.token_source === 'keychain' ? 'Replace stored token' : 'Set HEC token';
+    }
+    if (envVarSpan && dest.token_env_var) {
+      envVarSpan.textContent = dest.token_env_var;
     }
 
     await Settings._refreshRuntime();
@@ -981,32 +842,90 @@ const Settings = {
     }
   },
 
-  async saveHEC() {
-    const urlEl = document.getElementById('hec-url');
+  _hecCard(destId) {
+    return document.querySelector(
+      `.hec-card[data-dest-id="${CSS.escape(destId)}"]`
+    );
+  },
+
+  async addHECDestination() {
+    const btn = document.getElementById('hec-btn-add');
+    if (btn) btn.disabled = true;
+    try {
+      // A blank destination is fine; the server picks a fresh id and name.
+      const res = await fetch('/api/hec/destinations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        App.toast(`Add failed: ${Settings._describeError(body, res.status)}`, 'err');
+        return;
+      }
+      // Focus the freshly created destination's tab after re-render.
+      const created = await res.json().catch(() => null);
+      if (created && created.id) Settings.activeHECDest = created.id;
+      App.toast('Destination added', 'ok');
+      // Full re-render so the new card mounts in the destinations list.
+      await Settings._rerenderHECList();
+    } catch (_) {
+      App.toast('Add failed (network error)', 'err');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  },
+
+  async removeHECDestination(destId) {
+    if (!destId) return;
+    if (!window.confirm(`Remove destination "${destId}"? This also clears any stored token for it.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/hec/destinations/${encodeURIComponent(destId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        App.toast(`Remove failed: ${Settings._describeError(body, res.status)}`, 'err');
+        return;
+      }
+      App.toast('Destination removed', 'ok');
+      await Settings._rerenderHECList();
+    } catch (_) {
+      App.toast('Remove failed (network error)', 'err');
+    }
+  },
+
+  async saveHEC(destId) {
+    const card = Settings._hecCard(destId);
+    if (!card) return;
+    const urlEl = card.querySelector('.hec-url');
     const url = (urlEl.value || '').trim();
     if (url && !/^https:\/\//i.test(url)) {
-      Settings._showHECResult(false, 'URL must start with https://');
+      Settings._showHECResult(destId, false, 'URL must start with https://');
       App.toast('URL must start with https://', 'err');
       return;
     }
 
     const patch = {
-      enabled: document.getElementById('hec-enabled').checked,
+      name: (card.querySelector('.hec-name').value || '').trim() || `Destination ${destId}`,
+      enabled: card.querySelector('.hec-enabled').checked,
       url: url,
-      verify_tls: document.getElementById('hec-verify-tls').checked,
-      default_index: document.getElementById('hec-index').value.trim() || 'main',
-      default_source: document.getElementById('hec-source').value.trim() || 'threatgen',
-      default_host: document.getElementById('hec-host').value.trim() || 'threatgen',
-      sourcetype_map: Settings._collectMap(),
-      batch_size: parseInt(document.getElementById('hec-batch-size').value, 10) || 100,
-      flush_interval_s: parseFloat(document.getElementById('hec-flush').value) || 2.0,
-      queue_max: parseInt(document.getElementById('hec-queue-max').value, 10) || 10000,
-      request_timeout_s: parseFloat(document.getElementById('hec-timeout').value) || 10.0,
-      max_retries: parseInt(document.getElementById('hec-retries').value, 10) || 0,
+      verify_tls: card.querySelector('.hec-verify-tls').checked,
+      default_index: (card.querySelector('.hec-index').value || '').trim() || 'main',
+      default_source: (card.querySelector('.hec-source').value || '').trim() || 'threatgen',
+      default_host: (card.querySelector('.hec-host').value || '').trim() || 'threatgen',
+      sourcetype_map: Settings._collectMap(destId),
+      batch_size: parseInt(card.querySelector('.hec-batch-size').value, 10) || 100,
+      flush_interval_s: parseFloat(card.querySelector('.hec-flush').value) || 2.0,
+      queue_max: parseInt(card.querySelector('.hec-queue-max').value, 10) || 10000,
+      request_timeout_s: parseFloat(card.querySelector('.hec-timeout').value) || 10.0,
+      max_retries: parseInt(card.querySelector('.hec-retries').value, 10) || 0,
     };
 
     try {
-      const res = await fetch('/api/hec/config', {
+      const res = await fetch(`/api/hec/destinations/${encodeURIComponent(destId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
@@ -1014,42 +933,48 @@ const Settings = {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const detail = Settings._describeError(body, res.status);
-        Settings._showHECResult(false, `Save failed: ${detail}`);
+        Settings._showHECResult(destId, false, `Save failed: ${detail}`);
         App.toast(`HEC save failed: ${detail}`, 'err');
         return;
       }
-      Settings.hecConfig = await res.json();
-      Settings._showHECResult(true, 'HEC configuration saved and forwarder reloaded.');
-      App.toast('HEC settings saved', 'ok');
+      const updated = await res.json();
+      // Patch our in-memory cache so the next re-render has fresh data.
+      const idx = Settings.hecDestinations.findIndex(d => d.id === destId);
+      if (idx >= 0) Settings.hecDestinations[idx] = updated;
+      Settings._showHECResult(destId, true, 'Destination saved; forwarder reloaded.');
+      App.toast('HEC destination saved', 'ok');
       await Settings._refreshRuntime();
     } catch (e) {
-      Settings._showHECResult(false, 'Save failed (network error)');
+      Settings._showHECResult(destId, false, 'Save failed (network error)');
       App.toast('Save failed (network error)', 'err');
     }
   },
 
-  async testHEC() {
-    const btn = document.getElementById('hec-btn-test');
+  async testHEC(destId) {
+    const card = Settings._hecCard(destId);
+    const btn = card ? card.querySelector('.hec-btn-test') : null;
     if (btn) btn.disabled = true;
-    Settings._showHECResult(null, 'Sending test event...');
+    Settings._showHECResult(destId, null, 'Sending test event...');
     try {
-      const res = await App.api('POST', '/api/hec/test');
+      const res = await App.api('POST', `/api/hec/destinations/${encodeURIComponent(destId)}/test`);
       if (res && res.ok) {
-        Settings._showHECResult(true, `Success: HTTP ${res.status_code || ''} in ${res.latency_ms} ms`);
+        Settings._showHECResult(destId, true, `Success: HTTP ${res.status_code || ''} in ${res.latency_ms} ms`);
       } else {
-        Settings._showHECResult(false, `Failed: ${(res && res.error) || 'unknown error'}`);
+        Settings._showHECResult(destId, false, `Failed: ${(res && res.error) || 'unknown error'}`);
       }
     } catch (_) {
-      Settings._showHECResult(false, 'Test failed (network error)');
+      Settings._showHECResult(destId, false, 'Test failed (network error)');
     } finally {
       if (btn) btn.disabled = false;
       await Settings._refreshRuntime();
     }
   },
 
-  _collectMap() {
+  _collectMap(destId) {
+    const card = Settings._hecCard(destId);
     const map = {};
-    document.querySelectorAll('.hec-st-map').forEach(el => {
+    if (!card) return map;
+    card.querySelectorAll('.hec-st-map').forEach(el => {
       const k = el.dataset.st;
       const v = (el.value || '').trim();
       if (k && v) map[k] = v;
@@ -1058,7 +983,118 @@ const Settings = {
   },
 
   _showLLMResult(ok, message) { Settings._renderResult('llm-save-result', ok, message); },
-  _showHECResult(ok, message) { Settings._renderResult('hec-test-result', ok, message); },
+
+  _showHECResult(destId, ok, message) {
+    const card = Settings._hecCard(destId);
+    if (!card) return;
+    const el = card.querySelector('.hec-test-result-slot');
+    if (!el) return;
+    let cls = 'hec-test-info';
+    if (ok === true) cls = 'hec-test-ok';
+    else if (ok === false) cls = 'hec-test-err';
+    el.className = 'hec-test-result ' + cls;
+    el.textContent = message;
+  },
+
+  _showHECKeyResult(destId, ok, message) {
+    const card = Settings._hecCard(destId);
+    if (!card) return;
+    const el = card.querySelector('.hec-key-result-slot');
+    if (!el) return;
+    let cls = 'hec-test-info';
+    if (ok === true) cls = 'hec-test-ok';
+    else if (ok === false) cls = 'hec-test-err';
+    el.className = 'hec-test-result ' + cls;
+    el.textContent = message;
+  },
+
+  async _rerenderHECList() {
+    await Settings._fetchAll();
+    const list = document.getElementById('hec-destinations-list');
+    if (!list) return;
+    const destinations = Settings.hecDestinations || [];
+    const sts = Settings.sourcetypeConfig || {};
+    list.innerHTML = Settings._hecTabbedHTML(destinations, sts);
+    Settings._bindHECCardListeners();
+    await Settings._refreshRuntime();
+  },
+
+  // ------------------------------------------------------------------
+  // Chrome-style tabbed HEC destinations
+  //
+  // Renders a horizontal tab strip (one tab per destination plus a
+  // trailing "+" tab) above a panel area. Only the active destination's
+  // card is shown; the rest stay in the DOM (display:none) so runtime
+  // stat painting and per-card DOM queries keep working for every
+  // destination regardless of which tab is visible.
+  // ------------------------------------------------------------------
+  _hecTabbedHTML(destinations, sts) {
+    destinations = destinations || [];
+    if (destinations.length === 0) {
+      return `<div class="form-help">No HEC destinations configured. Click "+ Add Destination" to forward events to a Splunk instance.</div>`;
+    }
+    Settings._normalizeActiveHEC(destinations);
+    const active = Settings.activeHECDest;
+
+    const tabs = destinations.map(d => {
+      const id = d.id || '';
+      const isActive = id === active;
+      const isDefault = id === 'default';
+      const close = isDefault
+        ? ''
+        : `<span class="hec-tab-close" title="Remove destination"
+              onclick="event.stopPropagation();Settings.removeHECDestination('${Settings._attr(id)}')">&times;</span>`;
+      return `
+        <button type="button" class="hec-tab${isActive ? ' active' : ''}"
+          role="tab" aria-selected="${isActive ? 'true' : 'false'}"
+          data-tab-id="${Settings._attr(id)}"
+          onclick="Settings.selectHECTab('${Settings._attr(id)}')"
+          title="${Settings._attr(d.name || id)}">
+          <span class="hec-tab-dot ${d.enabled ? 'on' : 'off'}"></span>
+          <span class="hec-tab-label">${Settings._attr(d.name || id)}</span>
+          ${close}
+        </button>`;
+    }).join('');
+
+    const panels = destinations.map(d => {
+      const id = d.id || '';
+      const isActive = id === active;
+      return `
+        <div class="hec-panel" data-panel-id="${Settings._attr(id)}"
+          style="display:${isActive ? 'block' : 'none'}">
+          ${Settings._renderHECDestinationCard(d, sts)}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="hec-tabs" role="tablist">
+        ${tabs}
+        <button type="button" class="hec-tab-add"
+          onclick="Settings.addHECDestination()"
+          title="Add another Splunk HEC destination">+</button>
+      </div>
+      <div class="hec-panels">${panels}</div>
+    `;
+  },
+
+  _normalizeActiveHEC(destinations) {
+    const ids = (destinations || []).map(d => d.id);
+    if (!Settings.activeHECDest || !ids.includes(Settings.activeHECDest)) {
+      Settings.activeHECDest = ids.length ? ids[0] : null;
+    }
+  },
+
+  selectHECTab(destId) {
+    Settings.activeHECDest = destId;
+    document.querySelectorAll('.hec-tab').forEach(t => {
+      const on = t.dataset.tabId === destId;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.hec-panel').forEach(p => {
+      p.style.display = p.dataset.panelId === destId ? 'block' : 'none';
+    });
+  },
 
   _renderResult(id, ok, message) {
     const el = document.getElementById(id);
@@ -1099,5 +1135,256 @@ const Settings = {
       .replace(/"/g, '&quot;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  },
+
+  // ------------------------------------------------------------------
+  // HEC destination card renderer
+  //
+  // Renders one destination card. All user-controlled values pass
+  // through ``_attr`` for HTML-attribute escaping (codeguard XSS).
+  // The card has a stable ``data-dest-id`` attribute so per-card
+  // handlers can scope DOM queries with ``CSS.escape``.
+  // ------------------------------------------------------------------
+  _renderHECDestinationCard(dest, sts) {
+    const destId = dest.id || '';
+    const isDefault = destId === 'default';
+    const map = dest.sourcetype_map || {};
+    const tokenBadge = Settings._hecTokenBadge(dest);
+    const tokenSource = dest.token_source || 'none';
+    const envVar = dest.token_env_var || 'SPLUNK_HEC_TOKEN';
+
+    const removeBtn = isDefault
+      ? ''
+      : `<button class="btn" onclick="Settings.removeHECDestination('${Settings._attr(destId)}')"
+            title="Remove this destination">Remove</button>`;
+
+    return `
+      <div class="card hec-card" data-dest-id="${Settings._attr(destId)}">
+        <div class="hec-card-header">
+          <div>
+            <div class="hec-card-title">
+              <span class="hec-card-name">${Settings._attr(dest.name || destId)}</span>
+              <span class="hec-card-id">${Settings._attr(destId)}</span>
+            </div>
+            <div class="form-help" style="margin-top:4px">
+              Every generated event is fanned out to every enabled destination.
+            </div>
+          </div>
+          <div class="btn-group">
+            <button class="btn hec-btn-test"
+              onclick="Settings.testHEC('${Settings._attr(destId)}')"
+              title="Send a synthetic event to verify connectivity">Test Connection</button>
+            <button class="btn btn-primary"
+              onclick="Settings.saveHEC('${Settings._attr(destId)}')">Save</button>
+            ${removeBtn}
+          </div>
+        </div>
+
+        <div class="hec-test-result hec-test-result-top hec-test-result-slot"></div>
+
+        <div class="grid-2">
+          <div class="hec-subcard">
+            <div class="card-title">Connection</div>
+            <div class="form-group">
+              <label class="form-label">Display name</label>
+              <input type="text" class="form-input hec-name"
+                value="${Settings._attr(dest.name || '')}"
+                maxlength="80"
+                placeholder="e.g. Primary, Lab, DR">
+            </div>
+            <div class="form-group">
+              <label class="toggle-wrap">
+                <span class="form-label" style="margin:0">Enable forwarding</span>
+                <label class="toggle">
+                  <input type="checkbox" class="hec-enabled" ${dest.enabled ? 'checked' : ''}>
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">HEC URL (Splunk Cloud)</label>
+              <input type="text" class="form-input hec-url"
+                value="${Settings._attr(dest.url || '')}"
+                maxlength="512"
+                placeholder="https://http-inputs-&lt;stack&gt;.splunkcloud.com:443">
+              <div class="form-help">Must start with <code>https://</code>. The <code>/services/collector/event</code> path is appended automatically if omitted.</div>
+            </div>
+            <div class="form-group">
+              <label class="toggle-wrap">
+                <span class="form-label" style="margin:0">Verify TLS certificate</span>
+                <label class="toggle">
+                  <input type="checkbox" class="hec-verify-tls" ${dest.verify_tls !== false ? 'checked' : ''}>
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
+              <div class="form-help hec-tls-warn"
+                style="display:${dest.verify_tls === false ? 'block' : 'none'};color:var(--danger)">
+                Warning: disabling TLS verification is unsafe and should only be used in isolated development environments.
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Index</label>
+              <input type="text" class="form-input hec-index"
+                value="${Settings._attr(dest.default_index || 'main')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Source</label>
+              <input type="text" class="form-input hec-source"
+                value="${Settings._attr(dest.default_source || 'threatgen')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Host</label>
+              <input type="text" class="form-input hec-host"
+                value="${Settings._attr(dest.default_host || 'threatgen')}">
+            </div>
+          </div>
+
+          <div class="hec-subcard">
+            <div class="card-title">HEC Token</div>
+            <div class="form-group">
+              <div class="hec-token-badge-slot">${tokenBadge}</div>
+            </div>
+
+            <div class="form-help">
+              Precedence: the <code class="hec-env-var-name">${Settings._attr(envVar)}</code>
+              environment variable on the server always wins. Otherwise, a token stored
+              in the OS keychain for this destination is used. The token is
+              <strong>never</strong> written to <code>threatgen.db</code> or
+              <code>default_config.yaml</code>, and is never returned by any API response.
+            </div>
+
+            <div class="hec-key-form" style="display:${tokenSource === 'env' ? 'none' : 'block'}">
+              <div class="form-group">
+                <label class="form-label hec-token-label">
+                  ${tokenSource === 'keychain' ? 'Replace stored token' : 'Set HEC token'}
+                </label>
+                <div class="llm-key-row">
+                  <input type="password"
+                    class="form-input hec-token-input"
+                    autocomplete="off"
+                    spellcheck="false"
+                    maxlength="36"
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                  <button type="button" class="btn hec-token-toggle"
+                    onclick="Settings.toggleHECTokenVisibility('${Settings._attr(destId)}')"
+                    title="Show/hide">Show</button>
+                </div>
+                <div class="form-help">
+                  Token is sent over the loopback interface only, stored in
+                  the OS secret store under this destination's id, and cleared
+                  from the input field after saving.
+                </div>
+              </div>
+              <div class="btn-group">
+                <button type="button" class="btn btn-primary"
+                  onclick="Settings.saveHECKey('${Settings._attr(destId)}')">Save Token</button>
+                <button type="button" class="btn hec-key-clear-btn"
+                  style="display:${tokenSource === 'keychain' ? 'inline-flex' : 'none'}"
+                  onclick="Settings.clearHECKey('${Settings._attr(destId)}')">Clear Stored Token</button>
+              </div>
+            </div>
+
+            <div class="form-help hec-key-env-note"
+              style="display:${tokenSource === 'env' ? 'block' : 'none'};margin-top:8px">
+              The token is currently provided via
+              <code class="hec-env-var-name">${Settings._attr(envVar)}</code>.
+              Unset that environment variable and restart ThreatGen if you
+              want to manage the token from the UI.
+            </div>
+
+            <div class="hec-test-result hec-key-result-slot" style="margin-top:10px"></div>
+
+            <div class="card-title" style="margin-top:16px">Performance</div>
+            <div class="form-group">
+              <label class="form-label">Batch Size</label>
+              <input type="number" class="form-input hec-batch-size" min="1" max="10000"
+                value="${Settings._num(dest.batch_size, 100)}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Flush Interval (seconds)</label>
+              <input type="number" class="form-input hec-flush" min="0.1" max="300" step="0.1"
+                value="${Settings._num(dest.flush_interval_s, 2.0)}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Queue Capacity</label>
+              <input type="number" class="form-input hec-queue-max" min="1" max="1000000"
+                value="${Settings._num(dest.queue_max, 10000)}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Request Timeout (seconds)</label>
+              <input type="number" class="form-input hec-timeout" min="1" max="300" step="0.5"
+                value="${Settings._num(dest.request_timeout_s, 10.0)}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Retries</label>
+              <input type="number" class="form-input hec-retries" min="0" max="10"
+                value="${Settings._num(dest.max_retries, 3)}">
+            </div>
+          </div>
+        </div>
+
+        <div class="hec-subcard">
+          <div class="card-title">Sourcetype Mapping</div>
+          <div class="form-help" style="margin-bottom:10px">
+            Optional: override the Splunk <code>sourcetype</code> sent for each
+            generator. Leave a row blank to send the generator's native name.
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr><th>Generator</th><th>Splunk sourcetype override</th></tr>
+            </thead>
+            <tbody>
+              ${Object.keys(sts || {}).sort().map(name => `
+                <tr>
+                  <td>${Settings._attr(name)}</td>
+                  <td>
+                    <input type="text" class="hec-st-map" data-st="${Settings._attr(name)}"
+                      value="${Settings._attr(map[name] || '')}"
+                      placeholder="(use &quot;${Settings._attr(name)}&quot;)">
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid-4">
+          <div class="hec-subcard">
+            <div class="card-title">Events Sent</div>
+            <div class="stat-value success hec-sent">0</div>
+            <div class="stat-label">Total forwarded</div>
+          </div>
+          <div class="hec-subcard">
+            <div class="card-title">Events Failed</div>
+            <div class="stat-value danger hec-failed">0</div>
+            <div class="stat-label">After all retries</div>
+          </div>
+          <div class="hec-subcard">
+            <div class="card-title">Events Dropped</div>
+            <div class="stat-value hec-dropped">0</div>
+            <div class="stat-label">Queue overflow</div>
+          </div>
+          <div class="hec-subcard">
+            <div class="card-title">Queue</div>
+            <div class="stat-value hec-queue">0 / 0</div>
+            <div class="stat-label">Depth / capacity</div>
+          </div>
+        </div>
+
+        <div class="hec-subcard">
+          <div class="card-title">Forwarder Health</div>
+          <table class="data-table">
+            <tbody>
+              <tr><td style="width:220px">State</td><td class="hec-state">unknown</td></tr>
+              <tr><td>Token detected for this destination</td><td class="hec-token">—</td></tr>
+              <tr><td>Last success</td><td class="hec-last-success">—</td></tr>
+              <tr><td>Last success latency</td><td class="hec-last-latency">—</td></tr>
+              <tr><td>Last error</td><td class="hec-last-error">—</td></tr>
+              <tr><td>Last error time</td><td class="hec-last-error-at">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
   },
 };

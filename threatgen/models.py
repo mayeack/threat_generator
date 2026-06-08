@@ -146,7 +146,56 @@ class HECKeyUpdate(BaseModel):
         return s
 
 
+_HEC_NAME_RE = re.compile(r"^[A-Za-z0-9 ._\-:/]+$")
+
+
+def _validate_hec_url(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    s = v.strip()
+    if not s:
+        return ""
+    if not _HEC_URL_RE.match(s):
+        raise ValueError("url must be https:// and use a valid host")
+    return s
+
+
+def _validate_hec_safe_str(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    s = v.strip()
+    if not s:
+        raise ValueError("value cannot be empty")
+    if not _HEC_SAFE_STR_RE.match(s):
+        raise ValueError("only letters, digits, . _ - : / are allowed")
+    return s
+
+
+def _validate_hec_sourcetype_map(
+    v: Optional[dict[str, str]],
+) -> Optional[dict[str, str]]:
+    if v is None:
+        return v
+    cleaned: dict[str, str] = {}
+    for k, val in v.items():
+        if not isinstance(k, str) or not isinstance(val, str):
+            raise ValueError("sourcetype_map keys and values must be strings")
+        ks, vs = k.strip(), val.strip()
+        if not ks:
+            continue
+        if not _HEC_SAFE_STR_RE.match(ks):
+            raise ValueError(f"invalid generator name: {ks!r}")
+        if vs and not _HEC_SAFE_STR_RE.match(vs):
+            raise ValueError(f"invalid sourcetype override: {vs!r}")
+        if vs:
+            cleaned[ks] = vs
+    return cleaned
+
+
 class HECConfigUpdate(BaseModel):
+    """Patch for a single HEC destination. Used by both the new
+    destinations API and the legacy single-destination shim."""
+
     enabled: Optional[bool] = None
     url: Optional[str] = Field(default=None, max_length=512)
     verify_tls: Optional[bool] = None
@@ -163,23 +212,80 @@ class HECConfigUpdate(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_hec_url(v)
+
+    @field_validator("default_index", "default_source", "default_host")
+    @classmethod
+    def _validate_safe_str(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_hec_safe_str(v)
+
+    @field_validator("sourcetype_map")
+    @classmethod
+    def _validate_sourcetype_map(cls, v: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+        return _validate_hec_sourcetype_map(v)
+
+
+class HECDestinationUpdate(HECConfigUpdate):
+    """Patch for a destination via ``/api/hec/destinations/{id}``.
+
+    Adds an optional ``name`` (display label). The ``id`` itself cannot
+    be patched because it is the keychain handle and renaming it would
+    orphan the stored token.
+    """
+
+    name: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
         s = v.strip()
         if not s:
-            return ""
-        if not _HEC_URL_RE.match(s):
-            raise ValueError("url must be https:// and use a valid host")
+            raise ValueError("name cannot be empty")
+        if not _HEC_NAME_RE.match(s):
+            raise ValueError(
+                "name may only contain letters, digits, spaces, and . _ - : /"
+            )
         return s
+
+
+class HECDestinationCreate(BaseModel):
+    """Request body for ``POST /api/hec/destinations``.
+
+    All fields are optional; the server picks safe defaults (a fresh
+    ``dest-<hex>`` id and a placeholder name) so the UI can render a
+    blank card right after the "+" click and let the user fill it in.
+    """
+
+    name: Optional[str] = Field(default=None, max_length=80)
+    url: Optional[str] = Field(default=None, max_length=512)
+    enabled: Optional[bool] = None
+    verify_tls: Optional[bool] = None
+    default_index: Optional[str] = Field(default=None, max_length=80)
+    default_source: Optional[str] = Field(default=None, max_length=200)
+    default_host: Optional[str] = Field(default=None, max_length=200)
+    sourcetype_map: Optional[dict[str, str]] = None
+    batch_size: Optional[int] = Field(default=None, ge=1, le=10000)
+    flush_interval_s: Optional[float] = Field(default=None, ge=0.1, le=300.0)
+    queue_max: Optional[int] = Field(default=None, ge=1, le=1000000)
+    request_timeout_s: Optional[float] = Field(default=None, ge=1.0, le=300.0)
+    max_retries: Optional[int] = Field(default=None, ge=0, le=10)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_hec_url(v)
 
     @field_validator("default_index", "default_source", "default_host")
     @classmethod
     def _validate_safe_str(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
+        # Same alphabet but allow empty -> means "use default".
         s = v.strip()
         if not s:
-            raise ValueError("value cannot be empty")
+            return s
         if not _HEC_SAFE_STR_RE.match(s):
             raise ValueError("only letters, digits, . _ - : / are allowed")
         return s
@@ -187,25 +293,29 @@ class HECConfigUpdate(BaseModel):
     @field_validator("sourcetype_map")
     @classmethod
     def _validate_sourcetype_map(cls, v: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+        return _validate_hec_sourcetype_map(v)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        cleaned: dict[str, str] = {}
-        for k, val in v.items():
-            if not isinstance(k, str) or not isinstance(val, str):
-                raise ValueError("sourcetype_map keys and values must be strings")
-            ks, vs = k.strip(), val.strip()
-            if not ks:
-                continue
-            if not _HEC_SAFE_STR_RE.match(ks):
-                raise ValueError(f"invalid generator name: {ks!r}")
-            if vs and not _HEC_SAFE_STR_RE.match(vs):
-                raise ValueError(f"invalid sourcetype override: {vs!r}")
-            if vs:
-                cleaned[ks] = vs
-        return cleaned
+        s = v.strip()
+        if not s:
+            return s
+        if not _HEC_NAME_RE.match(s):
+            raise ValueError(
+                "name may only contain letters, digits, spaces, and . _ - : /"
+            )
+        return s
 
 
 class HECStatsResponse(BaseModel):
+    # Identity. Optional defaults keep the legacy single-destination
+    # shim ``GET /api/hec/stats`` response shape backward-compatible
+    # (older clients can ignore the new fields).
+    id: Optional[str] = None
+    name: Optional[str] = None
     enabled: bool
     running: bool
     token_present: bool
@@ -220,6 +330,10 @@ class HECStatsResponse(BaseModel):
     last_error_at: Optional[str] = None
     last_error: Optional[str] = None
     last_latency_ms: Optional[float] = None
+
+
+class HECStatsListResponse(BaseModel):
+    destinations: list[HECStatsResponse]
 
 
 class HECTestResult(BaseModel):

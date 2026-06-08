@@ -141,8 +141,10 @@ async def _run_engine(cfg: EngineConfig) -> None:
     if llm_runtime.worker and not llm_runtime.worker.running and not llm_runtime.paused:
         await llm_runtime.worker.start()
 
-    hec_runtime.configure(cfg.hec)
-    if cfg.hec.enabled and (hec_runtime.forwarder is None or not hec_runtime.forwarder.running):
+    hec_runtime.configure(cfg.hec_destinations)
+    # Start any newly-enabled destinations; ``start`` is idempotent and
+    # only spins up forwarders that are not already running.
+    if any(dest.enabled for dest in cfg.hec_destinations):
         try:
             await hec_runtime.start()
         except Exception:

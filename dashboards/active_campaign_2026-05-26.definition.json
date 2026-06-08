@@ -1,0 +1,913 @@
+{
+  "title": "Active Multi-Stage Campaign — Threat Hunt 2026-05-26",
+  "description": "Live monitoring of an active, ongoing intrusion campaign first detected 2026-03-16, still active as of today (2026-05-26 14:49 PT). 9 confirmed TTPs spanning endpoint persistence, lateral C2, credential harvesting, and external brute force.",
+  "inputs": {
+    "input_global_time": {
+      "type": "input.timerange",
+      "title": "Time range",
+      "options": {
+        "token": "global_time",
+        "defaultValue": "-24h@h,now"
+      }
+    },
+    "input_workstation": {
+      "type": "input.dropdown",
+      "title": "Workstation filter (optional)",
+      "options": {
+        "token": "tok_workstation",
+        "defaultValue": "*",
+        "items": [
+          {
+            "label": "All workstations",
+            "value": "*"
+          },
+          "> primary | objects()"
+        ]
+      },
+      "dataSources": {
+        "primary": "ds_workstation_items"
+      }
+    }
+  },
+  "defaults": {
+    "dataSources": {
+      "ds.search": {
+        "options": {
+          "queryParameters": {
+            "earliest": "$global_time.earliest$",
+            "latest": "$global_time.latest$"
+          }
+        }
+      }
+    },
+    "tokens": {
+      "default": {
+        "tok_workstation": {
+          "value": "*"
+        }
+      }
+    }
+  },
+  "dataSources": {
+    "ds_workstation_items": {
+      "type": "ds.search",
+      "name": "Workstation picker",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"WinEventLog:Security\" | stats count by ComputerName | sort ComputerName | eval label=ComputerName, value=ComputerName | fields label, value",
+        "queryParameters": {
+          "earliest": "-30d@d",
+          "latest": "now"
+        }
+      }
+    },
+    "ds_kpi_critical": {
+      "type": "ds.search",
+      "name": "KPI critical events",
+      "options": {
+        "query": "index=threat_gen ((sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" EventID=3 *cmd.exe*) OR (sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" WSPrint) OR ((sourcetype=stream:http OR sourcetype=stream:dns) (185.196.10.247 OR 185.196.10.38 OR 212.11.64.105 OR bloopencil.net OR xcit76.com OR xtibh.com OR slack-msgs.com))) | eval __ws=trim(replace(\"$tok_workstation|n$\",\" \",\"\")) | where (len(__ws)<1 OR __ws=\"*\" OR coalesce(Computer,ComputerName,host) IN (split(__ws,\",\"))) | stats count",
+        "queryParameters": {
+          "earliest": "$global_time.earliest$",
+          "latest": "$global_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_workstations": {
+      "type": "ds.search",
+      "name": "KPI compromised workstations",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" | spath | search (EventID=3 EventData.Image=\"*\\\\cmd.exe\") OR WSPrint | eval __ws=trim(replace(\"$tok_workstation|n$\",\" \",\"\")) | where (len(__ws)<1 OR __ws=\"*\" OR Computer IN (split(__ws,\",\"))) | stats dc(Computer) as workstations",
+        "queryParameters": {
+          "earliest": "$global_time.earliest$",
+          "latest": "$global_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_ext_ips": {
+      "type": "ds.search",
+      "name": "KPI external attacker IPs",
+      "options": {
+        "query": "index=threat_gen | rex \"(?:Failed password for|Invalid user)\\s+(?:invalid user\\s+)?(?<linux_user>\\S+)\\s+from\\s+(?<linux_src>\\d+\\.\\d+\\.\\d+\\.\\d+)\" | rex field=Message \"Source Network Address:\\s+(?<win_src_raw>[\\d.:]+)\" | eval win_src=replace(win_src_raw, \"^::ffff:\", \"\") | eval brute_src=coalesce(linux_src, win_src) | eval attacker_ip=if(cidrmatch(\"185.196.10.0/24\", coalesce(src_ip, dest_ip)) OR coalesce(src_ip, dest_ip)=\"212.11.64.105\", coalesce(src_ip, dest_ip), null()) | eval ext_ip=coalesce(attacker_ip, if(isnotnull(brute_src) AND brute_src!=\"-\" AND NOT cidrmatch(\"10.0.0.0/8\", brute_src) AND NOT cidrmatch(\"172.16.0.0/12\", brute_src) AND NOT cidrmatch(\"192.168.0.0/16\", brute_src), brute_src, null())) | where isnotnull(ext_ip) | stats dc(ext_ip) as total",
+        "queryParameters": {
+          "earliest": "$global_time.earliest$",
+          "latest": "$global_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_c2_dns": {
+      "type": "ds.search",
+      "name": "KPI C2 domain queries",
+      "options": {
+        "query": "index=threat_gen sourcetype=stream:dns (\"slack-msgs.com\" OR \"bloopencil.net\" OR \"xcit76.com\" OR \"xtibh.com\") | spath | stats count",
+        "queryParameters": {
+          "earliest": "$global_time.earliest$",
+          "latest": "$global_time.latest$"
+        }
+      }
+    },
+    "ds_kpi_failed": {
+      "type": "ds.search",
+      "name": "KPI failed logons",
+      "options": {
+        "query": "(index=threat_gen sourcetype=linux_secure (\"Failed password\" OR \"Invalid user\")) OR (index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4625) | stats count",
+        "queryParameters": {
+          "earliest": "$global_time.earliest$",
+          "latest": "$global_time.latest$"
+        }
+      }
+    },
+    "ds_wsprint_trend": {
+      "type": "ds.search",
+      "name": "WSPrint persistence trend",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" \"WSPrint\" | spath | eval __ws=trim(replace(\"$tok_workstation|n$\",\" \",\"\")) | where (len(__ws)<1 OR __ws=\"*\" OR Computer IN (split(__ws,\",\"))) | timechart span=1d count by Computer",
+        "queryParameters": {
+          "earliest": "-30d@d",
+          "latest": "now"
+        }
+      }
+    },
+    "ds_cmd_outbound_bar": {
+      "type": "ds.search",
+      "name": "cmd.exe outbound by host and user",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" | spath | search EventID=3 EventData.Image=\"*\\\\cmd.exe\" | rename Computer as host, EventData.User as user_full | rex field=user_full \"[^\\\\\\\\]+\\\\\\\\(?<user>.+)\" | eval __ws=trim(replace(\"$tok_workstation|n$\",\" \",\"\")) | where (len(__ws)<1 OR __ws=\"*\" OR host IN (split(__ws,\",\"))) | stats count by host, user | eval label=host.\" — \".user | sort -count | head 25",
+        "queryParameters": {
+          "earliest": "-7d@d",
+          "latest": "now"
+        }
+      }
+    },
+    "ds_c2_contacts": {
+      "type": "ds.search",
+      "name": "C2 contact table",
+      "options": {
+        "query": "index=threat_gen (sourcetype=stream:http OR sourcetype=stream:dns) (185.196.10.247 OR 185.196.10.38 OR 212.11.64.105 OR \"bloopencil.net\" OR \"xcit76.com\" OR \"xtibh.com\" OR \"slack-msgs.com\") | stats count, latest(_time) as last_seen by src_ip, dest_ip, sourcetype, http_user_agent, uri_path | eval last_seen=strftime(last_seen,\"%Y-%m-%d %H:%M\") | sort - last_seen",
+        "queryParameters": {
+          "earliest": "-30d@d",
+          "latest": "now"
+        }
+      }
+    },
+    "ds_dns_trend": {
+      "type": "ds.search",
+      "name": "Suspicious DNS query volume",
+      "options": {
+        "query": "index=threat_gen sourcetype=stream:dns (\"slack-msgs.com\" OR \"bloopencil.net\" OR \"xcit76.com\" OR \"xtibh.com\") | spath | rename query{} as query | timechart span=1d count by query",
+        "queryParameters": {
+          "earliest": "-30d@d",
+          "latest": "now"
+        }
+      }
+    },
+    "ds_failed_logins": {
+      "type": "ds.search",
+      "name": "Top failed login sources",
+      "options": {
+        "query": "(index=threat_gen sourcetype=linux_secure (\"Failed password\" OR \"Invalid user\")) OR (index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4625) | rex \"(?:Failed password for|Invalid user)\\s+(?:invalid user\\s+)?(?<linux_user>\\S+)\\s+from\\s+(?<linux_src>\\d+\\.\\d+\\.\\d+\\.\\d+)\" | rex field=Message \"Source Network Address:\\s+(?<win_src_raw>[\\d.:]+)\" | eval win_src=replace(win_src_raw, \"^::ffff:\", \"\") | eval src_ip=coalesce(linux_src, win_src) | eval failed_user=coalesce(linux_user, user) | where isnotnull(src_ip) AND src_ip!=\"-\" | stats count, dc(failed_user) as unique_users, values(failed_user) as users by src_ip, sourcetype | sort -count | head 30",
+        "queryParameters": {
+          "earliest": "$global_time.earliest$",
+          "latest": "$global_time.latest$"
+        }
+      }
+    },
+    "ds_rdp_external": {
+      "type": "ds.search",
+      "name": "External RDP success trend",
+      "options": {
+        "query": "index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4624 | rex field=Message \"Logon Type:\\s+(?<logon_type>\\d+)\" | rex field=Message \"Source Network Address:\\s+(?<src_addr_raw>[\\d.:]+)\" | eval src_addr=replace(src_addr_raw, \"^::ffff:\", \"\") | search logon_type=10 | where NOT cidrmatch(\"10.0.0.0/8\", src_addr) AND NOT cidrmatch(\"172.16.0.0/12\", src_addr) AND src_addr!=\"-\" | eval __ws=trim(replace(\"$tok_workstation|n$\",\" \",\"\")) | where (len(__ws)<1 OR __ws=\"*\" OR ComputerName IN (split(__ws,\",\"))) | timechart span=1h count by ComputerName",
+        "queryParameters": {
+          "earliest": "-7d@d",
+          "latest": "now"
+        }
+      }
+    }
+  },
+  "visualizations": {
+    "md_header": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Live campaign KPIs (24h)\nCritical indicators across endpoint, network, and identity attack stages. **Campaign still active** — first seen 2026-03-16."
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        }
+      }
+    },
+    "kpi_critical": {
+      "type": "splunk.singlevalue",
+      "title": "Critical events (24h)",
+      "description": "cmd.exe outbound connections, WSPrint persistence, and confirmed C2 contact indicators.",
+      "dataSources": {
+        "primary": "ds_kpi_critical"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Combined critical indicators",
+        "majorColor": "> primary | rangeValue(criticalColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "criticalColors": [
+          {
+            "from": 1,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen ((sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" EventID=3 *cmd.exe*) OR (sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" WSPrint) OR ((sourcetype=stream:http OR sourcetype=stream:dns) (185.196.10.247 OR 185.196.10.38 OR 212.11.64.105 OR bloopencil.net OR xcit76.com OR xtibh.com OR slack-msgs.com))) earliest=-24h latest=now",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "kpi_workstations": {
+      "type": "splunk.singlevalue",
+      "title": "Compromised workstations (24h)",
+      "description": "Distinct endpoints with cmd.exe outbound network activity or WSPrint persistence.",
+      "dataSources": {
+        "primary": "ds_kpi_workstations"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Distinct hosts",
+        "majorColor": "> primary | rangeValue(workstationColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "workstationColors": [
+          {
+            "from": 1,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" | spath | search (EventID=3 EventData.Image=\"*\\\\cmd.exe\") OR WSPrint earliest=-24h latest=now",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "kpi_ext_ips": {
+      "type": "splunk.singlevalue",
+      "title": "External attacker IPs (24h)",
+      "description": "Distinct IPs in 185.196.10.0/24, 212.11.64.105, plus external brute-force sources.",
+      "dataSources": {
+        "primary": "ds_kpi_ext_ips"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Distinct external IPs",
+        "majorColor": "> primary | rangeValue(extIpColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "extIpColors": [
+          {
+            "from": 5,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 1,
+            "value": "#F1813F"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#0076D3"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen (src_ip=212.11.64.105 OR cidrmatch(\"185.196.10.0/24\", src_ip) OR cidrmatch(\"185.196.10.0/24\", dest_ip)) OR ((sourcetype=linux_secure (\"Failed password\" OR \"Invalid user\")) OR (sourcetype=\"WinEventLog:Security\" EventCode=4625)) earliest=-24h latest=now",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "kpi_c2_dns": {
+      "type": "splunk.singlevalue",
+      "title": "C2 domain queries (24h)",
+      "description": "DNS lookups for slack-msgs.com, bloopencil.net, xcit76.com, and xtibh.com.",
+      "dataSources": {
+        "primary": "ds_kpi_c2_dns"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Suspicious DNS queries",
+        "majorColor": "> primary | rangeValue(c2Colors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "c2Colors": [
+          {
+            "from": 1,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=stream:dns (\"slack-msgs.com\" OR \"bloopencil.net\" OR \"xcit76.com\" OR \"xtibh.com\") earliest=-24h latest=now",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "kpi_failed": {
+      "type": "splunk.singlevalue",
+      "title": "Failed logon attempts (24h)",
+      "description": "Linux failed password / invalid user plus Windows Security 4625 events.",
+      "dataSources": {
+        "primary": "ds_kpi_failed"
+      },
+      "options": {
+        "majorFontSize": 42,
+        "backgroundColor": "transparent",
+        "trendDisplay": "off",
+        "showTrendIndicator": false,
+        "showSparklineAreaGraph": false,
+        "underLabel": "Failed authentication events",
+        "majorColor": "> primary | rangeValue(failedColors)",
+        "numberPrecision": 0
+      },
+      "context": {
+        "failedColors": [
+          {
+            "from": 10,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 1,
+            "value": "#F8BE34"
+          },
+          {
+            "from": 0,
+            "to": 0,
+            "value": "#53A051"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search (index=threat_gen sourcetype=linux_secure (\"Failed password\" OR \"Invalid user\")) OR (index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4625) earliest=-24h latest=now",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "md_endpoint": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Endpoint compromise\n**Persistence** (WSPrint) and **lateral movement** (cmd.exe outbound) on workstations."
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        }
+      }
+    },
+    "line_wsprint": {
+      "type": "splunk.line",
+      "title": "WSPrint.exe persistence by workstation (30d)",
+      "description": "Sysmon events referencing WSPrint — indicates scheduled-task persistence on compromised endpoints.",
+      "dataSources": {
+        "primary": "ds_wsprint_trend"
+      },
+      "options": {
+        "legendDisplay": "bottom",
+        "seriesColors": [
+          "#DC4E41",
+          "#F1813F",
+          "#F8BE34",
+          "#7B56DB",
+          "#009CEB"
+        ],
+        "yAxisTitleText": "Event count"
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" \"WSPrint\" | spath earliest=-24h latest=now | search Computer=$row.Computer.value|s$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "bar_cmd_outbound": {
+      "type": "splunk.bar",
+      "title": "cmd.exe outbound connections by workstation and user (7d)",
+      "description": "Sysmon Event ID 3 network connections initiated by cmd.exe — top 25 host/user pairs.",
+      "dataSources": {
+        "primary": "ds_cmd_outbound_bar"
+      },
+      "options": {
+        "xAxisTitleText": "Host — User",
+        "yAxisTitleText": "Connection count",
+        "legendDisplay": "off",
+        "seriesColors": [
+          "#DC4E41"
+        ],
+        "xAxisLabelRotation": -45,
+        "dataValuesDisplay": "minmax"
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"XmlWinEventLog:Microsoft-Windows-Sysmon/Operational\" | spath | search EventID=3 EventData.Image=\"*\\\\cmd.exe\" earliest=-24h latest=now | rename Computer as host | search host=$row.host.value|s$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "md_network": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Network / C2\n**Attacker infrastructure** contacts and **suspicious DNS** query volume over the campaign timeline."
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        }
+      }
+    },
+    "tbl_c2_contacts": {
+      "type": "splunk.table",
+      "title": "C2 contacts with attacker infrastructure (30d)",
+      "description": "HTTP and DNS traffic to known campaign IPs and domains. Click a row to pivot into Search.",
+      "dataSources": {
+        "primary": "ds_c2_contacts"
+      },
+      "options": {
+        "count": 50,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false,
+        "columnFormat": {
+          "count": {
+            "data": "> table | seriesByName(\"count\") | rangeValue(countColors)"
+          }
+        }
+      },
+      "context": {
+        "countColors": [
+          {
+            "from": 20,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 5,
+            "value": "#F1813F"
+          },
+          {
+            "from": 1,
+            "value": "#F8BE34"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen (sourcetype=stream:http OR sourcetype=stream:dns) earliest=-24h latest=now | search src_ip=$row.src_ip.value|s$ dest_ip=$row.dest_ip.value|s$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "line_dns_trend": {
+      "type": "splunk.line",
+      "title": "Suspicious DNS query volume (30d)",
+      "description": "Daily DNS lookups for campaign C2 domains — slack-msgs.com, bloopencil.net, xcit76.com, xtibh.com.",
+      "dataSources": {
+        "primary": "ds_dns_trend"
+      },
+      "options": {
+        "legendDisplay": "bottom",
+        "seriesColors": [
+          "#DC4E41",
+          "#F1813F",
+          "#009CEB",
+          "#7B56DB"
+        ],
+        "yAxisTitleText": "Query count"
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=stream:dns (\"slack-msgs.com\" OR \"bloopencil.net\" OR \"xcit76.com\" OR \"xtibh.com\") earliest=-24h latest=now",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "md_identity": {
+      "type": "splunk.markdown",
+      "title": "",
+      "options": {
+        "markdown": "## Identity / brute force\n**External authentication attacks** and **successful external RDP** (Logon Type 10) by target workstation."
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        }
+      }
+    },
+    "tbl_failed_logins": {
+      "type": "splunk.table",
+      "title": "Top failed-login source IPs (24h)",
+      "description": "Combined Linux sshd and Windows 4625 failures grouped by source IP.",
+      "dataSources": {
+        "primary": "ds_failed_logins"
+      },
+      "options": {
+        "count": 30,
+        "drilldown": "row",
+        "wrap": true,
+        "rowNumbers": false,
+        "columnFormat": {
+          "count": {
+            "data": "> table | seriesByName(\"count\") | rangeValue(failCountColors)"
+          }
+        }
+      },
+      "context": {
+        "failCountColors": [
+          {
+            "from": 10,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 3,
+            "value": "#F1813F"
+          },
+          {
+            "from": 1,
+            "value": "#F8BE34"
+          }
+        ]
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search (index=threat_gen sourcetype=linux_secure (\"Failed password\" OR \"Invalid user\")) OR (index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4625) earliest=-24h latest=now | search src_ip=$row.src_ip.value|s$",
+            "newTab": true
+          }
+        }
+      ]
+    },
+    "line_rdp_external": {
+      "type": "splunk.line",
+      "title": "External RDP success (Logon Type 10) by target (7d)",
+      "description": "Windows 4624 successful remote interactive logons from non-RFC1918 source addresses.",
+      "dataSources": {
+        "primary": "ds_rdp_external"
+      },
+      "options": {
+        "legendDisplay": "bottom",
+        "seriesColors": [
+          "#DC4E41",
+          "#F1813F",
+          "#F8BE34",
+          "#009CEB",
+          "#7B56DB",
+          "#00CDAF"
+        ],
+        "yAxisTitleText": "Successful logons"
+      },
+      "containerOptions": {
+        "title": {
+          "color": "#FFFFFF"
+        },
+        "description": {
+          "color": "#A8ABB0"
+        }
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToSearch",
+          "options": {
+            "search": "search index=threat_gen sourcetype=\"WinEventLog:Security\" EventCode=4624 earliest=-24h latest=now | rex field=Message \"Logon Type:\\s+(?<logon_type>\\d+)\" | search logon_type=10 | search ComputerName=$row.ComputerName.value|s$",
+            "newTab": true
+          }
+        }
+      ]
+    }
+  },
+  "layout": {
+    "globalInputs": [
+      "input_global_time",
+      "input_workstation"
+    ],
+    "tabs": {
+      "items": [
+        {
+          "layoutId": "layout_main",
+          "label": "Active Campaign"
+        }
+      ]
+    },
+    "layoutDefinitions": {
+      "layout_main": {
+        "type": "grid",
+        "options": {
+          "width": 1440,
+          "backgroundColor": "#111215"
+        },
+        "structure": [
+          {
+            "item": "md_header",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "kpi_critical",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 44,
+              "w": 288,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_workstations",
+            "type": "block",
+            "position": {
+              "x": 288,
+              "y": 44,
+              "w": 288,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_ext_ips",
+            "type": "block",
+            "position": {
+              "x": 576,
+              "y": 44,
+              "w": 288,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_c2_dns",
+            "type": "block",
+            "position": {
+              "x": 864,
+              "y": 44,
+              "w": 288,
+              "h": 150
+            }
+          },
+          {
+            "item": "kpi_failed",
+            "type": "block",
+            "position": {
+              "x": 1152,
+              "y": 44,
+              "w": 288,
+              "h": 150
+            }
+          },
+          {
+            "item": "md_endpoint",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 194,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "line_wsprint",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 238,
+              "w": 720,
+              "h": 400
+            }
+          },
+          {
+            "item": "bar_cmd_outbound",
+            "type": "block",
+            "position": {
+              "x": 720,
+              "y": 238,
+              "w": 720,
+              "h": 400
+            }
+          },
+          {
+            "item": "md_network",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 638,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "tbl_c2_contacts",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 682,
+              "w": 1440,
+              "h": 360
+            }
+          },
+          {
+            "item": "line_dns_trend",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1042,
+              "w": 1440,
+              "h": 360
+            }
+          },
+          {
+            "item": "md_identity",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1402,
+              "w": 1440,
+              "h": 44
+            }
+          },
+          {
+            "item": "tbl_failed_logins",
+            "type": "block",
+            "position": {
+              "x": 0,
+              "y": 1446,
+              "w": 720,
+              "h": 400
+            }
+          },
+          {
+            "item": "line_rdp_external",
+            "type": "block",
+            "position": {
+              "x": 720,
+              "y": 1446,
+              "w": 720,
+              "h": 400
+            }
+          }
+        ]
+      }
+    }
+  },
+  "expressions": {},
+  "applicationProperties": {
+    "hideExport": false,
+    "hideViewModeActionMenu": false,
+    "hideEdit": false,
+    "hideOpenInSearch": false,
+    "collapseNavigation": false
+  }
+}

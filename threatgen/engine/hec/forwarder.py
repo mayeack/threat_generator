@@ -122,6 +122,10 @@ def _resolve_source(
 
 @dataclass
 class HECStats:
+    # Identity. Populated by the runtime so per-destination stats can
+    # be displayed without further lookups.
+    id: str = ""
+    name: str = ""
     enabled: bool = False
     running: bool = False
     token_present: bool = False
@@ -150,6 +154,8 @@ class HECForwarder:
         self._task: Optional[asyncio.Task] = None
         self._stopping = asyncio.Event()
         self._stats = HECStats(
+            id=getattr(cfg, "id", ""),
+            name=getattr(cfg, "name", ""),
             enabled=cfg.enabled,
             token_present=bool(token),
             queue_capacity=max(1, cfg.queue_max),
@@ -330,6 +336,8 @@ class HECForwarder:
         self._stats.last_error = last_result.error if last_result else "unknown error"
 
     def snapshot_stats(self) -> HECStats:
+        self._stats.id = getattr(self._cfg, "id", "") or self._stats.id
+        self._stats.name = getattr(self._cfg, "name", "") or self._stats.name
         self._stats.queue_depth = self._queue.qsize()
         self._stats.queue_capacity = self._queue.maxsize
         self._stats.running = self.running

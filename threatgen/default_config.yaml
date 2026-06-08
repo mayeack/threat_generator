@@ -14,49 +14,60 @@ threat_ratio: 0.08
 # the ANTHROPIC_API_KEY environment variable and is NEVER stored here.
 # When the key is absent, the LLM worker stays idle and all generators
 # fall back to deterministic pattern output.
-# Splunk HEC forwarding. The token is read EXCLUSIVELY from the
-# SPLUNK_HEC_TOKEN environment variable and is NEVER stored here or
-# in the database. When the token is absent and `enabled` is true,
-# the forwarder starts in a degraded state and records errors.
-hec:
-  enabled: false
-  url: "https://http-inputs-example.splunkcloud.com:443"
-  verify_tls: true
-  default_index: "main"
-  # ``default_source`` is used as a PREFIX. At send-time the forwarder appends
-  # a per-family suffix (e.g. ``:wineventlog``, ``:stream_dns``, ``:cisco_asa``)
-  # so every event carries a source that matches the TA-threat_gen
-  # ``[source::threatgen:*]`` stanzas in props.conf. That is what enables
-  # ``KV_MODE = json`` and the index-time entity-field transforms for
-  # ``nt_host`` / ``ip`` / ``user_id`` / ``mac`` to fire.
-  default_source: "threatgen"
-  default_host: "threatgen"
-  # Internal ThreatGen sourcetype keys -> OOTB Splunk sourcetypes on the wire.
-  # Ships with defaults so HEC-only deployments (no TA-threat_gen on the
-  # indexer tier) land events under the same sourcetypes used by every
-  # bundled hunt guide, dashboard, and skill. TA-threat_gen is still
-  # recommended: it also sets KV_MODE=json and the index-time entity-field
-  # transforms (nt_host / ip / user_id / mac) that HEC alone does not.
-  sourcetype_map:
-    wineventlog: "WinEventLog:Security"
-    sysmon: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
-    linux_secure: "linux_secure"
-    "stream:dns": "stream:dns"
-    "stream:http": "stream:http"
-    "cisco:asa": "cisco:asa"
-  # Canonical source paths for families whose EA discovery source filters
-  # require a specific ``source=``. The HEC forwarder applies a hard-coded
-  # canonical overlay on top of this map, so even a stale DB row cannot
-  # regress below the minimum shape Exposure Analytics expects.
-  source_map:
-    wineventlog: "WinEventLog:Security"
-    sysmon: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
-    linux_secure: "/var/log/secure"
-  batch_size: 100
-  flush_interval_s: 2.0
-  queue_max: 10000
-  request_timeout_s: 10.0
-  max_retries: 3
+# Splunk HEC forwarding (multi-destination).
+#
+# Every generated event is fanned out to every *enabled* destination in
+# ``hec_destinations``. Each destination keeps its own HEC URL, token,
+# TLS verify flag, default index/source/host, sourcetype/source maps,
+# and performance settings.
+#
+# Token storage: each destination's token is read EXCLUSIVELY from the
+# OS keychain (or, for the ``default`` destination only, the legacy
+# ``SPLUNK_HEC_TOKEN`` environment variable). Tokens are NEVER stored
+# here or in the database. When a destination has ``enabled: true`` but
+# no token is available, the forwarder starts in a degraded state and
+# records errors.
+hec_destinations:
+  - id: default
+    name: "Primary"
+    enabled: false
+    url: "https://http-inputs-example.splunkcloud.com:443"
+    verify_tls: true
+    default_index: "main"
+    # ``default_source`` is used as a PREFIX. At send-time the forwarder appends
+    # a per-family suffix (e.g. ``:wineventlog``, ``:stream_dns``, ``:cisco_asa``)
+    # so every event carries a source that matches the TA-threat_gen
+    # ``[source::threatgen:*]`` stanzas in props.conf. That is what enables
+    # ``KV_MODE = json`` and the index-time entity-field transforms for
+    # ``nt_host`` / ``ip`` / ``user_id`` / ``mac`` to fire.
+    default_source: "threatgen"
+    default_host: "threatgen"
+    # Internal ThreatGen sourcetype keys -> OOTB Splunk sourcetypes on the wire.
+    # Ships with defaults so HEC-only deployments (no TA-threat_gen on the
+    # indexer tier) land events under the same sourcetypes used by every
+    # bundled hunt guide, dashboard, and skill. TA-threat_gen is still
+    # recommended: it also sets KV_MODE=json and the index-time entity-field
+    # transforms (nt_host / ip / user_id / mac) that HEC alone does not.
+    sourcetype_map:
+      wineventlog: "WinEventLog:Security"
+      sysmon: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+      linux_secure: "linux_secure"
+      "stream:dns": "stream:dns"
+      "stream:http": "stream:http"
+      "cisco:asa": "cisco:asa"
+    # Canonical source paths for families whose EA discovery source filters
+    # require a specific ``source=``. The HEC forwarder applies a hard-coded
+    # canonical overlay on top of this map, so even a stale DB row cannot
+    # regress below the minimum shape Exposure Analytics expects.
+    source_map:
+      wineventlog: "WinEventLog:Security"
+      sysmon: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+      linux_secure: "/var/log/secure"
+    batch_size: 100
+    flush_interval_s: 2.0
+    queue_max: 10000
+    request_timeout_s: 10.0
+    max_retries: 3
 
 llm:
   enabled: true

@@ -30,8 +30,8 @@ async def lifespan(app: FastAPI):
                 logger.info("llm_worker_started")
             else:
                 logger.info("llm_worker_not_started_fallback_active")
-        hec_runtime.configure(cfg.hec)
-        if cfg.hec.enabled:
+        hec_runtime.configure(cfg.hec_destinations)
+        if any(dest.enabled for dest in cfg.hec_destinations):
             try:
                 await hec_runtime.start()
             except Exception:
