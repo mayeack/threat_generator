@@ -58,6 +58,10 @@ Install on Splunk Cloud (Victoria)
 2. Validate with AppInspect (cloud tags):
      ./scripts/validate_ta.sh dist/TA-threat_gen-<version>.tgz
 
+   Note: both scripts are bash and require macOS or Linux; on Windows run
+   them from Git Bash or WSL. They are maintainer tooling only -- running
+   the ThreatGen app itself does not need them.
+
 3. Upload via Splunk Web: Settings -> Apps -> Install app from file, and
    select the .tgz. Alternatively, use ACS:
      curl -X POST -H "Authorization: Bearer $ACS_TOKEN" \

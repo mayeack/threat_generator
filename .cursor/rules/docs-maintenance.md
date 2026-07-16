@@ -26,7 +26,12 @@ incomplete.
    credential (API key, HEC token, etc.) must be documented as env-var-only.
    Do **not** document or add persistence of secrets in `threatgen.db`,
    `default_config.yaml`, logs, or any API response.
-4. **Install path is `/Applications/ThreatGenerator`.** Never `/Applications/ThreatGen`.
+4. **Canonical install paths:** `/Applications/ThreatGenerator` on macOS
+   (never `/Applications/ThreatGen`) and a user-writable folder such as
+   `C:\Users\<you>\ThreatGenerator` on Windows (never `C:\Program Files` —
+   the DB and logs are written next to the code). The app supports macOS,
+   Windows, and Linux: shell examples in the docs must show both the
+   macOS/Linux form and the Windows (PowerShell) form.
 5. **Server URL is `http://127.0.0.1:8899`.** Use this everywhere in docs.
 6. **Use the internal sourcetype keys consistently:** `wineventlog`, `sysmon`,
    `linux_secure`, `dns`, `stream:http`, `cisco:asa`.

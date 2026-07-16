@@ -19,13 +19,28 @@ Defined in `requirements.txt`:
 | `pyyaml` | 6.0 | YAML parsing for `default_config.yaml` |
 | `anthropic` | 0.96.0 | Claude SDK for LLM-backed log variation and campaign narratives |
 | `jsonschema` | 4.25.0 | Validates LLM JSON responses before they reach generators |
+| `httpx` | 0.27.0 | Async HTTP client used by the Splunk HEC forwarder |
+| `keyring` | 24.0.0 | Secret storage in the OS store (macOS Keychain, Windows Credential Manager, Linux Secret Service) |
 
 ## 1. Set Up
+
+Works on macOS, Windows, and Linux. Install into any user-writable folder — the SQLite database and `./logs/` output are written next to the code.
+
+**macOS / Linux**
 
 ```bash
 cd /Applications/ThreatGenerator
 python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell)** — in cmd.exe, activate with `venv\Scripts\activate` instead
+
+```powershell
+cd C:\Users\<you>\ThreatGenerator
+py -m venv venv
+venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -40,8 +55,15 @@ Set the key **via environment variable only**. The key is never persisted
 to `threatgen.db`, `default_config.yaml`, or anywhere else on disk:
 
 ```bash
+# macOS / Linux
 export ANTHROPIC_API_KEY="sk-ant-..."
 python3 run.py
+```
+
+```powershell
+# Windows (PowerShell) — cmd.exe: set ANTHROPIC_API_KEY=sk-ant-...
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+python run.py
 ```
 
 The Dashboard shows an **LLM** pill with three states:
@@ -58,7 +80,8 @@ immediately (subject to the configured concurrency / retry limits).
 ## 2. Start the Server
 
 ```bash
-python3 run.py
+python3 run.py    # macOS / Linux
+python run.py     # Windows
 ```
 
 The server starts on **http://127.0.0.1:8899**. On first launch, it creates a SQLite database and loads the default configuration automatically.
@@ -131,6 +154,8 @@ From the repo root, build a cloud-compliant tarball and optionally pre-validate 
 ./scripts/validate_ta.sh dist/TA-threat_gen-1.1.0.tgz       # requires: pip install splunk-appinspect
 ```
 
+> These are bash scripts (maintainer tooling only — not needed to run ThreatGen). On Windows, run them via Git Bash or WSL.
+
 Upload options:
 
 - Splunk Web: **Settings -> Apps -> Install app from file**, select the `.tgz`.
@@ -163,7 +188,7 @@ sudo mkdir -p /opt/splunkforwarder/etc/apps/TA-threat_gen/local
 
 Create `/opt/splunkforwarder/etc/apps/TA-threat_gen/local/inputs.conf`:
 
-> **Important:** Update the monitor paths below if ThreatGen is installed somewhere other than `/Applications/ThreatGenerator`.
+> **Important:** Update the monitor paths below if ThreatGen is installed somewhere other than `/Applications/ThreatGenerator`. On a Windows host, use the Windows path form, e.g. `[monitor://C:\Users\<you>\ThreatGenerator\logs\wineventlog.log]`, and install the TA under `C:\Program Files\SplunkUniversalForwarder\etc\apps\`.
 
 ```ini
 [monitor:///Applications/ThreatGenerator/logs/wineventlog.log]

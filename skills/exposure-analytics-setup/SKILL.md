@@ -11,7 +11,7 @@ Wire Splunk ES 8 Exposure Analytics into a live ThreatGen stream so that every e
 
 Use this skill when **all** of the following are true:
 
-1. ThreatGen is actively streaming events into a target Splunk ES 8 instance (default assumption: `https://aisoc-shw-ac1b0ac6a138.stg.splunkcloud.com/`, `index=threat_gen`).
+1. ThreatGen is actively streaming events into a target Splunk ES 8 instance (`index=threat_gen`). The stack changes regularly — resolve it from ThreatGen's live HEC config rather than assuming a hostname; see [`.cursor/rules/splunk-mcp-target.md`](../../.cursor/rules/splunk-mcp-target.md).
 2. The user wants Exposure Analytics to discover entities automatically (not manual CSV uploads).
 3. ThreatGen is running a build that emits the top-level entity fields `nt_host`, `ip`, `user_id`, `mac` (see [`threatgen/engine/formatters`](../../threatgen/engine/formatters) - all formatters lift these to the top level of each JSON event).
 

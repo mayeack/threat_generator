@@ -164,7 +164,11 @@ async def _run_engine(cfg: EngineConfig) -> None:
     global _file_handles
     _file_handles = {}
     for name, st_cfg in cfg.sourcetypes.items():
-        _file_handles[name] = open(output_dir / st_cfg.file, "w", buffering=1, encoding="utf-8")
+        # newline="\n" keeps output LF-terminated on Windows (text mode
+        # would otherwise translate to CRLF, diverging from macOS/Linux).
+        _file_handles[name] = open(
+            output_dir / st_cfg.file, "w", buffering=1, encoding="utf-8", newline="\n"
+        )
 
     from threatgen.websocket_manager import ws_manager
 

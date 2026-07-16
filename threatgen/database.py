@@ -285,7 +285,7 @@ async def _migrate_hec_source_map() -> None:
 
 async def _seed_default() -> None:
     assert _db is not None
-    with open(_DEFAULT_CFG) as f:
+    with open(_DEFAULT_CFG, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     now = datetime.now(timezone.utc).isoformat()
     await _db.execute(
